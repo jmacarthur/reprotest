@@ -120,7 +120,7 @@ class Script(collections.namedtuple('_Script', 'build_command setup cleanup')):
             "sh", "-ec", _shell_ast.Quote(build_command))
         return super().__new__(cls, build_command, setup, cleanup)
 
-    def append_command(self, command):
+    def append_to_build_command(self, command):
         '''Passes the current build command as the last argument to a given
         _shell_ast.SimpleCommand.
 
@@ -279,8 +279,8 @@ def kernel(ctx, script, env, tree, *args):
     # tests expect different values.
     setarch = _shell_ast.SimpleCommand.make('linux64', '--uname-2.6')
     setarch2 = _shell_ast.SimpleCommand.make('linux32')
-    new_control = script.control.append_command(setarch)
-    new_experiment = script.experiment.append_command(setarch2)
+    new_control = script.control.append_to_build_command(setarch)
+    new_experiment = script.experiment.append_to_build_command(setarch2)
     return Pair(new_control, new_experiment), env, tree
 
 # TODO: if this locale doesn't exist on the system, Python's
@@ -343,7 +343,7 @@ def faketime(ctx, script, env, tree, source_root, *args):
         # otherwise use a date far in the future
         faket = '+373days+7hours+13minutes'
     settime = _shell_ast.SimpleCommand.make('faketime', faket)
-    new_experiment = script.experiment.append_command(settime)
+    new_experiment = script.experiment.append_to_build_command(settime)
     # faketime's manpages are stupidly misleading; it also modifies file timestamps.
     # this is only mentioned in the README. we do not want this, it really really
     # messes with GNU make and other buildsystems that look at timestamps.
@@ -367,7 +367,7 @@ def user_group(ctx, script, env, tree, *args):
     sudobuild = _shell_ast.SimpleCommand.make('sudo', '-E', '-u', user, '-g', group)
     binpath = os.path.join(dirname(tree.experiment), 'bin')
 
-    _ = script.experiment.append_command(sudobuild)
+    _ = script.experiment.append_to_build_command(sudobuild)
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
