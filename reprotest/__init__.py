@@ -81,22 +81,10 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
             testbed.stop()
 
 
-class Pair(collections.namedtuple('_Pair', 'control experiment')):
-    """Holds one object for each run of the build process."""
-    @classmethod
-    def of(cls, x):
-        return cls(x, x)
+class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tree')):
+    '''Holds the shell ASTs and various other data, used to execute each build.
 
-def add(mapping, key, value):
-    '''Helper function for adding a key-value pair to an immutable mapping.'''
-    new_mapping = mapping.copy()
-    new_mapping[key] = value
-    return types.MappingProxyType(new_mapping)
-
-class Script(collections.namedtuple('_Script', 'build_command setup cleanup')):
-    '''Holds the shell ASTs used to construct the final build script.
-
-    Args:
+    Fields:
         build_command (_shell_ast.Command): The build command itself, including
             all commands that accept other commands as arguments.  Examples:
             setarch.
@@ -112,13 +100,26 @@ class Script(collections.namedtuple('_Script', 'build_command setup cleanup')):
             is copied out.  These execution unconditionally, one after another,
             because all cleanup commands should be attempted irrespective of
             whether others succeed.  Examples: fileordering.
+        env (types.MappingProxyType): Immutable mapping of the environment.
+        tree (str): Path to the source root where the build should take place.
     '''
 
-    def __new__(cls, build_command, setup=_shell_ast.AndList(),
-                cleanup=_shell_ast.List()):
-        build_command = _shell_ast.SimpleCommand(
-            "sh", "-ec", _shell_ast.Quote(build_command))
-        return super().__new__(cls, build_command, setup, cleanup)
+    @classmethod
+    def from_command(cls, build_command, env, tree):
+        return cls(
+            build_command = _shell_ast.SimpleCommand(
+                "sh", "-ec", _shell_ast.Quote(build_command)),
+            setup = _shell_ast.AndList(),
+            cleanup = _shell_ast.List(),
+            env = env,
+            tree = tree,
+        )
+
+    def add_env(self, key, value):
+        '''Helper function for adding a key-value pair to an immutable mapping.'''
+        new_mapping = self.env.copy()
+        new_mapping[key] = value
+        return self._replace(env=types.MappingProxyType(new_mapping))
 
     def append_to_build_command(self, command):
         '''Passes the current build command as the last argument to a given
@@ -162,12 +163,16 @@ class Script(collections.namedtuple('_Script', 'build_command setup cleanup')):
     def prepend_cleanup_exec_raw(self, *args):
         return self.prepend_cleanup(_shell_ast.SimpleCommand.make(*args))
 
-    def move_tree(self, source, target):
-        return self.append_setup_exec(
+    def move_tree(self, source, target, set_tree):
+        new_build = self.append_setup_exec(
             'mv', source, target).prepend_cleanup_exec(
             'mv', target, source)
+        if set_tree:
+            return new_build._replace(tree = os.path.join(target, ''))
+        else:
+            return new_build
 
-    def __str__(self):
+    def to_script(self):
         '''Generates the shell code for the script.
 
         The build command is only executed if all the setup commands
@@ -197,10 +202,19 @@ fi
             return str(subshell)
 
 
-class VariationContext(collections.namedtuple('_VariationContext', 'verbosity user_groups')):
+class VariationContext(collections.namedtuple('_VariationContext', 'verbosity user_groups default_faketime')):
+
     @classmethod
     def default(cls):
-        return cls(0, frozenset())
+        return cls(0, frozenset(), 0)
+
+    def guess_default_faketime(self, source_root):
+        # Get the latest modification date of all the files in the source root.
+        # This tries hard to avoid bad interactions with faketime and make(1) etc.
+        # However if you're building this too soon after changing one of the source
+        # files then the effect of this variation is not very great.
+        filemtimes = (os.path.getmtime(os.path.join(root, f)) for root, dirs, files in os.walk(source_root) for f in files)
+        return self._replace(default_faketime=int(max(filemtimes, default=0)))
 
 
 def dirname(p):
@@ -225,10 +239,10 @@ VSRC_DIR = "source-root"
 # def cpu(script, env, tree):
 #     return script, env, tree
 
-def environment(ctx, script, env, tree, *args):
-    new_env = add(env.experiment, 'CAPTURE_ENVIRONMENT',
-                  'i_capture_the_environment')
-    return script, Pair(env.control, new_env), tree
+def environment(ctx, build, vary):
+    if not vary:
+        return build
+    return build.add_env('CAPTURE_ENVIRONMENT', 'i_capture_the_environment')
 
 # TODO: this requires superuser privileges.
 # def domain_host(ctx, script, env, tree):
@@ -237,51 +251,51 @@ def environment(ctx, script, env, tree, *args):
 # Note: this has to go before fileordering because we can't move mountpoints
 # TODO: this variation makes it impossible to parallelise the build, for most
 # of the current virtual servers. (It's theoretically possible to make it work)
-def build_path_same(ctx, script, env, tree, *args):
-    const_path = os.path.join(dirname(tree.control), 'const_build_path')
-    assert const_path == os.path.join(dirname(tree.experiment), 'const_build_path')
-    new_control = script.control.move_tree(tree.control, const_path)
-    new_experiment = script.experiment.move_tree(tree.experiment, const_path)
-    const_path_dir = os.path.join(const_path, '')
-    return Pair(new_control, new_experiment), env, Pair.of(const_path_dir)
+def build_path_same(ctx, build, vary):
+    if vary:
+        return build
+    const_path = os.path.join(dirname(build.tree), 'const_build_path')
+    return build.move_tree(build.tree, const_path, True)
 build_path_same.negative = True
 
-def fileordering(ctx, script, env, tree, *args):
-    old_tree = os.path.join(dirname(tree.experiment), basename(tree.experiment) + '-before-disorderfs', '')
-    _ = script.experiment.move_tree(tree.experiment, old_tree)
-    _ = _.append_setup_exec('mkdir', '-p', tree.experiment)
-    _ = _.prepend_cleanup_exec('rmdir', tree.experiment)
+def fileordering(ctx, build, vary):
+    if not vary:
+        return build
+
+    old_tree = os.path.join(dirname(build.tree), basename(build.tree) + '-before-disorderfs', '')
+    _ = build.move_tree(build.tree, old_tree, False)
+    _ = _.append_setup_exec('mkdir', '-p', build.tree)
+    _ = _.prepend_cleanup_exec('rmdir', build.tree)
     disorderfs = ['disorderfs'] + ([] if ctx.verbosity else ["-q"])
-    _ = _.append_setup_exec(*(disorderfs + ['--shuffle-dirents=yes', old_tree, tree.experiment]))
-    _ = _.prepend_cleanup_exec('fusermount', '-u', tree.experiment)
+    _ = _.append_setup_exec(*(disorderfs + ['--shuffle-dirents=yes', old_tree, build.tree]))
+    _ = _.prepend_cleanup_exec('fusermount', '-u', build.tree)
     # the "user_group" variation hacks PATH to run "sudo -u XXX" instead of various tools, pick it up here
-    binpath = os.path.join(dirname(tree.experiment), 'bin')
+    binpath = os.path.join(dirname(build.tree), 'bin')
     _ = _.prepend_cleanup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
-    new_script = _
-    return Pair(script.control, new_script), env, tree
+    return _
 
 # Note: this has to go after anything that might modify 'tree' e.g. build_path
-def home(ctx, script, env, tree, *args):
-    # choose an existent HOME, see Debian bug #860428
-    control = add(env.control, 'HOME', tree.control)
-    experiment = add(env.experiment, 'HOME', '/nonexistent/second-build')
-    return script, Pair(control, experiment), tree
+def home(ctx, build, vary):
+    if not vary:
+        # choose an existent HOME, see Debian bug #860428
+        return build.add_env('HOME', build.tree)
+    else:
+        return build.add_env('HOME', '/nonexistent/second-build')
 
 # TODO: uname is a POSIX standard.  The related Linux command
 # (setarch) only affects uname at the moment according to the docs.
 # FreeBSD changes uname with environment variables.  Wikipedia has a
 # reference to a setname command on another Unix variant:
 # https://en.wikipedia.org/wiki/Uname
-def kernel(ctx, script, env, tree, *args):
+def kernel(ctx, build, vary):
     # set these two explicitly different. otherwise, when reprotest is
     # reprotesting itself, then one of the builds will fail its tests, because
     # its two child reprotests will see the same value for "uname" but the
     # tests expect different values.
-    setarch = _shell_ast.SimpleCommand.make('linux64', '--uname-2.6')
-    setarch2 = _shell_ast.SimpleCommand.make('linux32')
-    new_control = script.control.append_to_build_command(setarch)
-    new_experiment = script.experiment.append_to_build_command(setarch2)
-    return Pair(new_control, new_experiment), env, tree
+    if not vary:
+        return build.append_to_build_command(_shell_ast.SimpleCommand.make('linux64', '--uname-2.6'))
+    else:
+        return build.append_to_build_command(_shell_ast.SimpleCommand.make('linux32'))
 
 # TODO: if this locale doesn't exist on the system, Python's
 # locales.getlocale() will return (None, None) rather than this
@@ -295,47 +309,46 @@ def kernel(ctx, script, env, tree, *args):
 
 # TODO: what exact locales and how to many test is probably a mailing
 # list question.
-def locales(ctx, script, env, tree, *args):
-    new_control = add(add(env.control, 'LANG', 'C.UTF-8'), 'LANGUAGE', 'en_US:en')
-    # if there is an issue with this being random, we could instead select it
-    # based on a deterministic hash of the inputs
-    loc = random.choice(['fr_CH.UTF-8', 'es_ES', 'ru_RU.CP1251', 'kk_KZ.RK1048', 'zh_CN'])
-    new_experiment = add(add(add(env.experiment, 'LANG', loc), 'LC_ALL', loc), 'LANGUAGE', '%s:fr' % loc)
-    return script, Pair(new_control, new_experiment), tree
+def locales(ctx, build, vary):
+    if not vary:
+        return build.add_env('LANG', 'C.UTF-8').add_env('LANGUAGE', 'en_US:en')
+    else:
+        # if there is an issue with this being random, we could instead select it
+        # based on a deterministic hash of the inputs
+        loc = random.choice(['fr_CH.UTF-8', 'es_ES', 'ru_RU.CP1251', 'kk_KZ.RK1048', 'zh_CN'])
+        return build.add_env('LANG', loc).add_env('LC_ALL', loc).add_env('LANGUAGE', '%s:fr' % loc)
 
 # TODO: Linux-specific.  unshare --uts requires superuser privileges.
 # How is this related to host/domainname?
-# def namespace(ctx, script, env, tree, *args):
+# def namespace(ctx, script, env, tree):
 #     # command1 = ['unshare', '--uts'] + command1
 #     # command2 = ['unshare', '--uts'] + command2
 #     return script, env, tree
 
-def exec_path(ctx, script, env, tree, *args):
-    new_env = add(env.experiment, 'PATH', env.control['PATH'] +
-                  ':/i_capture_the_path')
-    return script, Pair(env.control, new_env), tree
+def exec_path(ctx, build, vary):
+    if not vary:
+        return build
+    return build.add_env('PATH', build.env['PATH'] + ':/i_capture_the_path')
 
 # This doesn't require superuser privileges, but the chsh command
 # affects all user shells, which would be bad.
-# # def shell(ctx, script, env, tree, *args):
+# # def shell(ctx, script, env, tree):
 #     return script, env, tree
 
-def timezone(ctx, script, env, tree, *args):
+def timezone(ctx, build, vary):
     # These time zones are theoretically in the POSIX time zone format
     # (http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08),
     # so they should be cross-platform compatible.
-    control = add(env.control, 'TZ', 'GMT+12')
-    experiment = add(env.experiment, 'TZ', 'GMT-14')
-    return script, Pair(control, experiment), tree
+    if not vary:
+        return build.add_env('TZ', 'GMT+12')
+    else:
+        return build.add_env('TZ', 'GMT-14')
 
-def faketime(ctx, script, env, tree, source_root, *args):
-    # Get the latest modification date of all the files in the source root.
-    # This tries hard to avoid bad interactions with faketime and make(1) etc.
-    # However if you're building this too soon after changing one of the source
-    # files then the effect of this variation is not very great.
-    filemtimes = (os.path.getmtime(os.path.join(root, f)) for root, dirs, files in os.walk(source_root) for f in files)
+def faketime(ctx, build, vary):
+    if not vary:
+        return build
+    lastmt = ctx.default_faketime
     now = time.time()
-    lastmt = int(max(filemtimes, default=now))
     if lastmt < now - 32253180:
         # if lastmt is far in the past, use that, it's a bit safer
         faket = '@%s' % lastmt
@@ -343,31 +356,34 @@ def faketime(ctx, script, env, tree, source_root, *args):
         # otherwise use a date far in the future
         faket = '+373days+7hours+13minutes'
     settime = _shell_ast.SimpleCommand.make('faketime', faket)
-    new_experiment = script.experiment.append_to_build_command(settime)
     # faketime's manpages are stupidly misleading; it also modifies file timestamps.
     # this is only mentioned in the README. we do not want this, it really really
     # messes with GNU make and other buildsystems that look at timestamps.
-    new_experiment_env = add(env.experiment, 'NO_FAKE_STAT', '1')
-    return Pair(script.control, new_experiment), Pair(env.control, new_experiment_env), tree
+    return build.add_env('NO_FAKE_STAT', '1').append_to_build_command(settime)
 
-def umask(ctx, script, env, tree, *args):
-    new_control = script.control.append_setup_exec('umask', '0022')
-    new_experiment = script.experiment.append_setup_exec('umask', '0002')
-    return Pair(new_control, new_experiment), env, tree
+def umask(ctx, build, vary):
+    if not vary:
+        return build.append_setup_exec('umask', '0022')
+    else:
+        return build.append_setup_exec('umask', '0002')
 
 # Note: this needs to go before anything that might need to run setup commands
 # as the other user (e.g. due to permissions).
-def user_group(ctx, script, env, tree, *args):
+def user_group(ctx, build, vary):
+    if not vary:
+        return build
+
     if not ctx.user_groups:
         logging.warn("IGNORING user_group variation, because no --user-groups were given. To suppress this warning, give --dont-vary user_group")
-        return script, env, tree
+        return build
+
     olduser = getpass.getuser()
     oldgroup = grp.getgrgid(os.getgid()).gr_name
     user, group = random.choice(list(set(ctx.user_groups) - set([(olduser, oldgroup)])))
     sudobuild = _shell_ast.SimpleCommand.make('sudo', '-E', '-u', user, '-g', group)
-    binpath = os.path.join(dirname(tree.experiment), 'bin')
+    binpath = os.path.join(dirname(build.tree), 'bin')
 
-    _ = script.experiment.append_to_build_command(sudobuild)
+    _ = build.append_to_build_command(sudobuild)
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
@@ -380,11 +396,10 @@ printf '#!/bin/sh\nsudo -u "{1}" -g "{2}" /bin/fusermount "$@"\n' > "{0}"/fuserm
 chmod +x "{0}"/fusermount
 '''.format(binpath, user, group))
     _ = _.append_setup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
-    _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, tree.experiment)
+    _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
     # TODO: artifacts probably shouldn't be chown'd back
-    _ = _.prepend_cleanup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % user, olduser, tree.experiment)
-    new_experiment = _
-    return Pair(script.control, new_experiment), env, tree
+    _ = _.prepend_cleanup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % user, olduser, build.tree)
+    return _
 
 
 # The order of the variations *is* important, because the command to
@@ -408,30 +423,73 @@ VARIATIONS = collections.OrderedDict([
 ])
 
 
-def build(script, env, source_root_orig, source_root_build, dist_root, artifact_pattern, testbed):
-    logging.info("starting build with source directory: %s, artifact pattern: %s",
-        source_root_orig, artifact_pattern)
-    # remove any existing artifact, in case the build script doesn't overwrite
-    # it e.g. like how make(1) sometimes works.
-    if re.search(r"""(^| )['"]*/""", artifact_pattern):
-        raise ValueError("artifact_pattern is possibly dangerous; maybe use a relative path instead?")
-    testbed.check_exec(
-        ['sh', '-ec', 'cd "%s" && rm -rf %s' %
-        (source_root_orig, artifact_pattern)])
-    # this dance is necessary because the cwd can't be cd'd into during the setup phase under some variations like user_group
-    new_script = script.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % source_root_build)
-    logging.info("executing: %s", new_script)
-    argv = ['sh', '-ec', str(new_script)]
-    xenv = ['%s=%s' % (k, v) for k, v in env.items()]
-    (code, _, _) = testbed.execute(argv, xenv=xenv, kind='build')
-    if code != 0:
-        testbed.bomb('"%s" failed with status %i' % (' '.join(argv), code), adtlog.AutopkgtestError)
-    dist_base = os.path.join(dist_root, VSRC_DIR)
-    testbed.check_exec(
-        ['sh', '-ec', """mkdir -p "{0}"
+class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_dist_root local_src build_name')):
+    """
+
+    The idiom os.path.join(x, '') is used here to ensure a trailing directory
+    separator, which is needed by some things, notably VirtSubProc.
+    """
+
+    @property
+    def testbed_src(self):
+        return os.path.join(self.testbed_root, 'build-' + self.build_name, '')
+
+    @property
+    def testbed_dist(self):
+        return os.path.join(self.testbed_root, 'artifacts-' + self.build_name, '')
+
+    @property
+    def local_dist(self):
+        return os.path.join(self.local_dist_root, self.build_name)
+
+    def make_build_commands(self, script, env):
+        return Build.from_command(
+            build_command = script,
+            env = types.MappingProxyType(env),
+            tree = self.testbed_src
+        )
+
+    def plan_variations(self, build, is_control, variation_context, variations):
+        actions = [(not is_control and v in variations, v) for v in VARIATIONS]
+        logging.info('build "%s": %s',
+            self.build_name,
+            ", ".join("%s %s" % ("FIX" if not vary else "vary", v) for vary, v in actions))
+        for vary, v in actions:
+            build = VARIATIONS[v](variation_context, build, vary)
+        return build
+
+    def copydown(self, testbed):
+        logging.info("copying %s over to virtual server's %s", self.local_src, self.testbed_src)
+        testbed.command('copydown', (os.path.join(self.local_src, ''), self.testbed_src))
+
+    def copyup(self, testbed):
+        logging.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
+        testbed.command('copyup', (self.testbed_dist, os.path.join(self.local_dist, '')))
+
+    def run_build(self, testbed, build, artifact_pattern):
+        logging.info("starting build with source directory: %s, artifact pattern: %s",
+            self.testbed_src, artifact_pattern)
+        # remove any existing artifact, in case the build script doesn't overwrite
+        # it e.g. like how make(1) sometimes works.
+        if re.search(r"""(^| )['"]*/""", artifact_pattern):
+            raise ValueError("artifact_pattern is possibly dangerous; maybe use a relative path instead?")
+        testbed.check_exec(
+            ['sh', '-ec', 'cd "%s" && rm -rf %s' %
+            (self.testbed_src, artifact_pattern)])
+        # this dance is necessary because the cwd can't be cd'd into during the setup phase under some variations like user_group
+        new_script = build.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % build.tree).to_script()
+        logging.info("executing: %s", new_script)
+        argv = ['sh', '-ec', new_script]
+        xenv = ['%s=%s' % (k, v) for k, v in build.env.items()]
+        (code, _, _) = testbed.execute(argv, xenv=xenv, kind='build')
+        if code != 0:
+            testbed.bomb('"%s" failed with status %i' % (' '.join(argv), code), adtlog.AutopkgtestError)
+        dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
+        testbed.check_exec(
+            ['sh', '-ec', """mkdir -p "{0}"
 cd "{1}" && cp --parents -a -t "{0}" {2}
 cd "{0}" && touch -d@0 . .. {2}
-""".format(dist_base, source_root_orig, artifact_pattern)])
+""".format(dist_base, self.testbed_src, artifact_pattern)])
 
 
 def run_or_tee(progargs, filename, store_dir, *args, **kwargs):
@@ -443,6 +501,21 @@ def run_or_tee(progargs, filename, store_dir, *args, **kwargs):
     else:
         return subprocess.run(progargs, *args, **kwargs)
 
+def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
+    if diffoscope_args is None: # don't run diffoscope
+        diffprogram = ['diff', '-ru', dist_0, dist_1]
+        logging.info("Running diff: %r", diffprogram)
+    else:
+        diffprogram = ['diffoscope', dist_0, dist_1] + diffoscope_args
+        logging.info("Running diffoscope: %r", diffprogram)
+
+    retcode = run_or_tee(diffprogram, 'diffoscope.out', store_dir).returncode
+    if retcode == 0:
+        logging.info("No differences between %s, %s", dist_0, dist_1)
+        if store_dir:
+            shutil.rmtree(dist_1)
+            os.symlink(basename(dist_0), dist_1)
+    return retcode
 
 def check(build_command, artifact_pattern, virtual_server_args, source_root,
           no_clean_on_error=False, store_dir=None, diffoscope_args=[],
@@ -453,19 +526,15 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
         raise ValueError("invalid source root: %s" % source_root)
     if os.path.isfile(source_root):
         source_root = os.path.normpath(os.path.dirname(source_root))
+
     if store_dir:
         store_dir = str(store_dir)
         if not os.path.exists(store_dir):
             os.makedirs(store_dir, exist_ok=False)
         elif os.listdir(store_dir):
             raise ValueError("store_dir must be empty: %s" % store_dir)
-        store = Pair(os.path.join(store_dir, "control"),
-                     os.path.join(store_dir, "experiment"))
 
     logging.debug("virtual_server_args: %r", virtual_server_args)
-    script = Pair.of(Script('cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command))
-    env = Pair(types.MappingProxyType(os.environ.copy()),
-               types.MappingProxyType(os.environ.copy()))
 
     source_root = str(source_root)
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -476,61 +545,52 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
             source_root = new_source_root
         logging.debug("source_root: %s", source_root)
 
-        result = Pair(os.path.join(temp_dir, 'control_artifact/'),
-                      os.path.join(temp_dir, 'experiment_artifact/'))
+        variation_context = variation_context.guess_default_faketime(source_root)
 
-        # TODO: an alternative strategy is to run the testbed twice; not sure
-        # if it's worth implementing at this stage, but perhaps in the future.
+        # TODO: an alternative strategy is to run the testbed many times, one for each build
+        # not sure if it's worth implementing at this stage, but perhaps in the future.
         with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
                 host_distro=host_distro) as testbed:
-            # directories need explicit '/' appended for VirtSubproc
-            tree = Pair(testbed.scratch + '/control/', testbed.scratch + '/experiment/')
-            dist = Pair(testbed.scratch + '/control-dist/', testbed.scratch + '/experiment-dist/')
-            source_root = source_root + '/'
 
-            orig_tree = tree
-            logging.log(5, "builds: %r", (script, env, tree))
-            # build the scripts to run the variations
-            for variation in VARIATIONS:
-                vary = VARIATIONS[variation]
-                negative = hasattr(vary, "negative") and vary.negative
-                if (variation in variations) != negative:
-                    logging.info("will %s: %s", "FIX" if negative else "vary", variation)
-                    script, env, tree = vary(variation_context, script, env, tree, source_root)
-                    logging.log(5, "builds: %r", (script, env, tree))
+            if store_dir:
+                result_dir = store_dir
+            else:
+                result_dir = os.path.join(temp_dir, 'artifacts')
+                os.makedirs(result_dir)
+
+            build_contexts = [BuildContext(testbed.scratch, result_dir, source_root, name)
+                for name in ('control', 'experiment')]
+            builds = [bctx.make_build_commands(
+                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
+                for bctx in build_contexts]
+
+            logging.log(5, "builds: %r", builds)
+            builds = [c.plan_variations(b, c.build_name == "control", variation_context, variations)
+                for c, b in zip(build_contexts, builds)]
+            logging.log(5, "builds: %r", builds)
 
             try:
                 # run the scripts
                 if testbed_init:
                     testbed.check_exec(["sh", "-ec", testbed_init])
 
-                for i in (0, 1):
-                    logging.info("copying %s over to virtual server's %s", source_root, orig_tree[i])
-                    testbed.command('copydown', (source_root, orig_tree[i]))
+                for bctx in build_contexts:
+                    bctx.copydown(testbed)
 
-                for i in (0, 1):
-                    build(script[i], env[i], orig_tree[i], tree[i], dist[i],
-                          artifact_pattern, testbed)
+                for bctx, build in zip(build_contexts, builds):
+                    bctx.run_build(testbed, build, artifact_pattern)
 
-                for i in (0, 1):
-                    logging.info("copying %s back from virtual server's %s", dist[i], result[i])
-                    testbed.command('copyup', (dist[i], result[i]))
+                for bctx in build_contexts:
+                    bctx.copyup(testbed)
             except Exception:
                 traceback.print_exc()
                 return 2
 
-        if store_dir:
-            shutil.copytree(result.control, store.control, symlinks=True)
-            shutil.copytree(result.experiment, store.experiment, symlinks=True)
+        retcodes = [
+            run_diff(build_contexts[0].local_dist, bctx.local_dist, diffoscope_args, store_dir)
+            for bctx in build_contexts[1:]]
 
-        if diffoscope_args is None: # don't run diffoscope
-            diffprogram = ['diff', '-ru', result.control, result.experiment]
-            logging.info("Running diff: %r", diffprogram)
-        else:
-            diffprogram = ['diffoscope', result.control, result.experiment] + diffoscope_args
-            logging.info("Running diffoscope: %r", diffprogram)
-
-        retcode = run_or_tee(diffprogram, 'diffoscope.out', store_dir).returncode
+        retcode = max(retcodes)
         if retcode == 0:
             print("=======================")
             print("Reproduction successful")
@@ -538,11 +598,7 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
             print("No differences in %s" % artifact_pattern, flush=True)
             run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % artifact_pattern],
                 'SHA256SUMS', store_dir,
-                cwd=os.path.join(result.control, VSRC_DIR))
-
-            if store_dir:
-                shutil.rmtree(store.experiment)
-                os.symlink("control", store.experiment)
+                cwd=os.path.join(build_contexts[0].local_dist, VSRC_DIR))
         else:
             # a slight hack, to trigger no_clean_on_error
             raise SystemExit(retcode)
