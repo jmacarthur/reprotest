@@ -656,7 +656,7 @@ def cli_parser():
         'treated as a source_root, else as a build_command. Otherwise, if one '
         'of -c or -s is given, then this is treated as the other one. If both '
         'are given, then this is a command-line syntax error and we exit code 2.'),
-    parser.add_argument('artifact', default=None, nargs='?',
+    parser.add_argument('artifact_pattern', default=None, nargs='?',
         help='Build artifact to test for reproducibility. May be a shell '
              'pattern such as "*.deb *.changes".'),
     parser.add_argument('virtual_server_args', default=None, nargs='*',
@@ -814,13 +814,13 @@ def run(argv, check):
             sys.exit(2)
         elif first_arg == "auto":
             build_command = first_arg
-            if parsed_args.artifact:
+            if parsed_args.artifact_pattern:
                 logging.warn("old CLI form `reprotest auto <source_root>` detected, "
-                    "setting source_root to the second argument: %s", parsed_args.artifact)
+                    "setting source_root to the second argument: %s", parsed_args.artifact_pattern)
                 logging.warn("to avoid this warning, use instead `reprotest <source_root>` "
                     "or (if really necessary) `reprotest -s <source_root> auto <artifact>`")
-                source_root = parsed_args.artifact
-                parsed_args.artifact = None
+                source_root = parsed_args.artifact_pattern
+                parsed_args.artifact_pattern = None
         elif os.path.exists(first_arg):
             source_root = first_arg
         else:
@@ -830,7 +830,7 @@ def run(argv, check):
 
     # Args that might be affected by presets
     virtual_server_args = parsed_args.virtual_server_args
-    artifact_pattern = parsed_args.artifact
+    artifact_pattern = parsed_args.artifact_pattern
     testbed_pre = parsed_args.testbed_pre
     testbed_init = parsed_args.testbed_init
     diffoscope_args = parsed_args.diffoscope_arg
@@ -842,7 +842,7 @@ def run(argv, check):
         values = eval(auto_preset_expr, {'_': values}, {})
         logging.info("preset auto-selected: %r", values)
         build_command = values.build_command
-        artifact_pattern = artifact_pattern or values.artifact
+        artifact_pattern = artifact_pattern or values.artifact_pattern
         testbed_pre = testbed_pre or values.testbed_pre
         testbed_init = testbed_init or values.testbed_init
         if diffoscope_args is not None:

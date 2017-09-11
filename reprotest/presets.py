@@ -13,29 +13,29 @@ class AttributeFunctor(collections.namedtuple('_AttributeFunctor', 'x f')):
 
 
 class ReprotestPreset(collections.namedtuple('_ReprotestPreset',
-    'build_command artifact testbed_pre testbed_init diffoscope_args')):
+    'build_command artifact_pattern testbed_pre testbed_init diffoscope_args')):
     """Named-tuple representing a reprotest command preset.
 
     You can manipulate it like this:
 
     >>> ReprotestPreset(None, None, None, None)
-    ReprotestPreset(build_command=None, artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command=None, artifact_pattern=None, testbed_pre=None, testbed_init=None)
 
     >>> _.set.build_command("etc")
-    ReprotestPreset(build_command='etc', artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command='etc', artifact_pattern=None, testbed_pre=None, testbed_init=None)
 
     >>> _.append.build_command("; etc2")
-    ReprotestPreset(build_command='etc; etc2', artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command='etc; etc2', artifact_pattern=None, testbed_pre=None, testbed_init=None)
 
     >>> _.prepend.build_command("setup; ")
-    ReprotestPreset(build_command='setup; etc; etc2', artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command='setup; etc; etc2', artifact_pattern=None, testbed_pre=None, testbed_init=None)
 
     >>> _.set.build_command("dpkg-buildpackage --no-sign -b")
-    ReprotestPreset(build_command='dpkg-buildpackage --no-sign -b', artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command='dpkg-buildpackage --no-sign -b', artifact_pattern=None, testbed_pre=None, testbed_init=None)
 
     >>> _.str_replace.build_command(
     ...    "dpkg-buildpackage", "DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -Pnocheck")
-    ReprotestPreset(build_command='DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -Pnocheck --no-sign -b', artifact=None, testbed_pre=None, testbed_init=None)
+    ReprotestPreset(build_command='DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -Pnocheck --no-sign -b', artifact_pattern=None, testbed_pre=None, testbed_init=None)
     """
 
     @property
@@ -58,7 +58,7 @@ class ReprotestPreset(collections.namedtuple('_ReprotestPreset',
 
 PRESET_DEB_DIR = ReprotestPreset(
     build_command = 'dpkg-buildpackage --no-sign -b',
-    artifact = '../*.deb',
+    artifact_pattern = '../*.deb',
     testbed_pre = None,
     testbed_init = None,
     diffoscope_args = ["--exclude-directory-metadata"],
@@ -75,7 +75,7 @@ def preset_deb_schroot(preset):
 def preset_deb_dsc(fn):
     return PRESET_DEB_DIR.prepend.build_command(
             'dpkg-source -x "%s" build && cd build && ' % fn
-        ).set.artifact("*.deb")
+        ).set.artifact_pattern("*.deb")
 
 def get_presets(buildfile, virtual_server):
     fn = os.path.basename(buildfile)
