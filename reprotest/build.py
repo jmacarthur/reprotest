@@ -178,12 +178,11 @@ def environment(ctx, build, vary):
 # Note: this has to go before fileordering because we can't move mountpoints
 # TODO: this variation makes it impossible to parallelise the build, for most
 # of the current virtual servers. (It's theoretically possible to make it work)
-def build_path_same(ctx, build, vary):
+def build_path(ctx, build, vary):
     if vary:
         return build
     const_path = os.path.join(dirname(build.tree), 'const_build_path')
     return build.move_tree(build.tree, const_path, True)
-build_path_same.negative = True
 
 def fileordering(ctx, build, vary):
     if not vary:
@@ -333,7 +332,7 @@ chmod +x "{0}"/fusermount
 # be executed in the container needs to be built from the inside out.
 VARIATIONS = collections.OrderedDict([
     ('environment', environment),
-    ('build_path', build_path_same),
+    ('build_path', build_path),
     ('user_group', user_group),
     # ('cpu', cpu),
     # ('domain_host', domain_host),
