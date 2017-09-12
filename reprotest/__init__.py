@@ -4,6 +4,7 @@
 import argparse
 import collections
 import configparser
+import contextlib
 import logging
 import os
 import pathlib
@@ -20,7 +21,6 @@ import pkg_resources
 from reprotest.lib import adtlog
 from reprotest.lib import adt_testbed
 from reprotest.build import Build, VARIATIONS, VariationContext
-from reprotest import _contextlib
 from reprotest import presets
 
 
@@ -50,7 +50,7 @@ def get_all_servers():
 # variety of other options including Docker etc that use different
 # approaches.
 
-@_contextlib.contextmanager
+@contextlib.contextmanager
 def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian'):
     '''This is a simple wrapper around adt_testbed that automates the
     initialization and cleanup.'''
