@@ -356,11 +356,8 @@ def cli_parser():
     group1.add_argument('--variations', default=["+all"], action='append',
         help='Build variations to test as a whitespace-or-comma-separated '
         'list.  Default is to test all available variations: %(default)s.')
-    # TODO: hide this from --help, and deprecate it
-    group1.add_argument('--dont-vary', default=[], action='append',
-        help='Build variations *not* to test as a whitespace-or-comma-separated '
-        'list.  These take precedence over what you set for --variations. '
-        'Default is nothing, i.e. test whatever you set for --variations.')
+    # TODO: remove after reprotest 0.8
+    group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
     group2 = parser.add_argument_group('diff options')
     group2.add_argument('--diffoscope-arg', default=[], action='append',
@@ -501,7 +498,10 @@ def run(argv, check):
             diffoscope_args = values.diffoscope_args + diffoscope_args
 
     # Variations args
-    variations = parsed_args.variations + ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
+    variations = parsed_args.variations
+    if parsed_args.dont_vary:
+        logging.warn("--dont-vary is deprecated; use --variations=-$variation instead")
+        variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     spec = VariationSpec().extend(variations)
     variations = Variations(verbosity, spec)
 

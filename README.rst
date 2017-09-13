@@ -148,7 +148,7 @@ A sample config file is below::
     variations =
       environment
       build_path
-      user_group
+      user_group.available+=builduser:builduser
       fileordering
       home
       kernel
@@ -159,8 +159,6 @@ A sample config file is below::
       umask
     store_dir =
       /home/foo/build/reprotest-artifacts
-    user_groups =
-      builduser:builduser
 
     [diff]
     diffoscope_arg =
@@ -239,6 +237,6 @@ hard-to-diagnose problems. In the past, this has included:
   bash and probably certain other packages using autotools.
 
 If you see a difference that you really think should not be there, try passing
-``--dont-vary time`` to reprotest, and/or check our results on
+``--variations=-time`` to reprotest, and/or check our results on
 https://tests.reproducible-builds.org/ which use a different (more reliable)
 mechanism to vary the system time.

@@ -1,7 +1,7 @@
 reprotest (0.7) UNRELEASED; urgency=medium
 
   FIXME do not release
-  - update the docs
+  - update the docs on --variations
 
   [ Ximin Luo ]
   * Document when one should use --diffoscope-args=--exclude-directory-metadata
@@ -10,6 +10,10 @@ reprotest (0.7) UNRELEASED; urgency=medium
   * Import autopkgtest 4.4, with minimal patches.
   * Choose an existent HOME for the control build. (Closes: #860428)
   * Add the ability to vary the user (Closes: #872412)
+  * Heavy refactoring to support > 2 builds.
+  * Add a variation config language to be able to configure the specifics of
+    different variations, and to make it easier to configure further builds.
+  * Deprecate the --dont-vary flag.
 
   [ Mattia Rizzolo ]
   * Bump Standards-Version to 4.0.0.
