@@ -1,11 +1,15 @@
 reprotest (0.7) UNRELEASED; urgency=medium
 
+  FIXME do not release
+  - update the docs
+
   [ Ximin Luo ]
   * Document when one should use --diffoscope-args=--exclude-directory-metadata
     and do this in our Debian package presets.
   * Bump diffoscope Recommends version to >= 84 to support this flag.
   * Import autopkgtest 4.4, with minimal patches.
   * Choose an existent HOME for the control build. (Closes: #860428)
+  * Add the ability to vary the user (Closes: #872412)
 
   [ Mattia Rizzolo ]
   * Bump Standards-Version to 4.0.0.

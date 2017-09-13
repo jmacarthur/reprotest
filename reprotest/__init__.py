@@ -20,7 +20,7 @@ import pkg_resources
 
 from reprotest.lib import adtlog
 from reprotest.lib import adt_testbed
-from reprotest.build import Build, VARIATIONS, VariationContext
+from reprotest.build import Build, VariationSpec, Variations
 from reprotest import presets
 
 
@@ -105,13 +105,15 @@ class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_d
             tree = self.testbed_src
         )
 
-    def plan_variations(self, build, is_control, variation_context, variations):
-        actions = [(not is_control and v in variations, v) for v in VARIATIONS]
+    def plan_variations(self, build, is_control, variations): # XXX
+        if is_control:
+            variations = variations._replace(spec=VariationSpec.empty())
+        actions = variations.spec.actions()
         logging.info('build "%s": %s',
             self.build_name,
-            ", ".join("%s %s" % ("FIX" if not vary else "vary", v) for vary, v in actions))
-        for vary, v in actions:
-            build = VARIATIONS[v](variation_context, build, vary)
+            ", ".join("%s %s" % ("FIX" if not vary else "vary", v) for v, vary, action in actions))
+        for v, vary, action in actions:
+            build = action(variations, build, vary)
         return build
 
     def copydown(self, testbed):
@@ -175,7 +177,7 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
 
 def check(build_command, artifact_pattern, virtual_server_args, source_root,
           no_clean_on_error=False, store_dir=None, diffoscope_args=[],
-          variations=VARIATIONS, variation_context=VariationContext.default(),
+          variations=Variations.default(),
           testbed_pre=None, testbed_init=None, host_distro='debian'):
     # default argument [] is safe here because we never mutate it.
     if not source_root:
@@ -201,7 +203,7 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
             source_root = new_source_root
         logging.debug("source_root: %s", source_root)
 
-        variation_context = variation_context.guess_default_faketime(source_root)
+        variations = variations._replace(spec=variations.spec.apply_dynamic_defaults(source_root))
 
         # TODO: an alternative strategy is to run the testbed many times, one for each build
         # not sure if it's worth implementing at this stage, but perhaps in the future.
@@ -221,7 +223,7 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
                 for bctx in build_contexts]
 
             logging.log(5, "builds: %r", builds)
-            builds = [c.plan_variations(b, c.build_name == "control", variation_context, variations)
+            builds = [c.plan_variations(b, c.build_name == "control", variations)
                 for c, b in zip(build_contexts, builds)]
             logging.log(5, "builds: %r", builds)
 
@@ -351,20 +353,14 @@ def cli_parser():
         help='Save the artifacts in this directory, which must be empty or '
         'non-existent. Otherwise, the artifacts will be deleted and you only '
         'see their hashes (if reproducible) or the diff output (if not).')
-    group1.add_argument('--variations', default=frozenset(VARIATIONS.keys()),
-        type=lambda s: frozenset(sss for ss in s.split(',') for sss in ss.split()),
+    group1.add_argument('--variations', default=["+all"], action='append',
         help='Build variations to test as a whitespace-or-comma-separated '
-        'list.  Default is to test all available variations: %s.' %
-        ', '.join(VARIATIONS.keys()))
-    group1.add_argument('--dont-vary', default=frozenset(),
-        type=lambda s: frozenset(sss for ss in s.split(',') for sss in ss.split()),
+        'list.  Default is to test all available variations: %(default)s.')
+    # TODO: hide this from --help, and deprecate it
+    group1.add_argument('--dont-vary', default=[], action='append',
         help='Build variations *not* to test as a whitespace-or-comma-separated '
         'list.  These take precedence over what you set for --variations. '
         'Default is nothing, i.e. test whatever you set for --variations.')
-    group1.add_argument('--user-groups', default=frozenset(),
-        type=lambda s: frozenset(tuple(x.split(':',1)) for x in s.split(',')),
-        help='Comma-separated list of possible user:group combinations which '
-        'will be randomly chosen to `sudo -i` to when varying user_group.')
 
     group2 = parser.add_argument_group('diff options')
     group2.add_argument('--diffoscope-arg', default=[], action='append',
@@ -505,11 +501,9 @@ def run(argv, check):
             diffoscope_args = values.diffoscope_args + diffoscope_args
 
     # Variations args
-    variations = parsed_args.variations - parsed_args.dont_vary
-    _ = VariationContext.default()
-    _ = _._replace(verbosity=verbosity)
-    _ = _._replace(user_groups=_.user_groups | parsed_args.user_groups)
-    variation_context = _
+    variations = parsed_args.variations + ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
+    spec = VariationSpec().extend(variations)
+    variations = Variations(verbosity, spec)
 
     # Remaining args
     host_distro = parsed_args.host_distro
@@ -525,7 +519,7 @@ def run(argv, check):
     check_args_keys = (
         "build_command", "artifact_pattern", "virtual_server_args", "source_root",
         "no_clean_on_error", "store_dir", "diffoscope_args",
-        "variations", "variation_context",
+        "variations",
         "testbed_pre", "testbed_init", "host_distro")
     l = locals()
     check_args = collections.OrderedDict([(k, l[k]) for k in check_args_keys])

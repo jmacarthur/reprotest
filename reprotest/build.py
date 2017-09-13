@@ -1,13 +1,18 @@
+# Licensed under the GPL: https://www.gnu.org/licenses/gpl-3.0.en.html
+# For details: reprotest/debian/copyright
+
 import collections
 import getpass
 import grp
 import logging
 import os
+import shlex
 import random
 import time
 import types
 
 from reprotest import _shell_ast
+from reprotest import mdiffconf
 
 
 def dirname(p):
@@ -141,21 +146,6 @@ fi
             return str(subshell)
 
 
-class VariationContext(collections.namedtuple('_VariationContext', 'verbosity user_groups default_faketime')):
-
-    @classmethod
-    def default(cls):
-        return cls(0, frozenset(), 0)
-
-    def guess_default_faketime(self, source_root):
-        # Get the latest modification date of all the files in the source root.
-        # This tries hard to avoid bad interactions with faketime and make(1) etc.
-        # However if you're building this too soon after changing one of the source
-        # files then the effect of this variation is not very great.
-        filemtimes = (os.path.getmtime(os.path.join(root, f)) for root, dirs, files in os.walk(source_root) for f in files)
-        return self._replace(default_faketime=int(max(filemtimes, default=0)))
-
-
 # time zone, locales, disorderfs, host name, user/group, shell, CPU
 # number, architecture for uname (using linux64), umask, HOME, see
 # also: https://tests.reproducible-builds.org/index_variations.html
@@ -272,10 +262,12 @@ def timezone(ctx, build, vary):
 
 def faketime(ctx, build, vary):
     if not vary:
+        # FIXME: this does not actually fix the time, it just lets the system clock run normally
         return build
-    lastmt = ctx.default_faketime
+    lastmt = random.choice(ctx.spec.time.faketimes)
     now = time.time()
-    if lastmt < now - 32253180:
+    # FIXME: better way of choosing which faketime to use
+    if lastmt.startswith("@") and int(lastmt[1:]) < now - 32253180:
         # if lastmt is far in the past, use that, it's a bit safer
         faket = '@%s' % lastmt
     else:
@@ -299,14 +291,26 @@ def user_group(ctx, build, vary):
     if not vary:
         return build
 
-    if not ctx.user_groups:
-        logging.warn("IGNORING user_group variation, because no --user-groups were given. To suppress this warning, give --dont-vary user_group")
+    if not ctx.spec.user_group.available:
+        logging.warn("IGNORING user_group variation; supply more usergroups "
+        "with --variations=user_group.available+=USER1:GROUP1;USER2:GROUP2 or "
+        "alternatively, suppress this warning with --variations=-user_group")
         return build
 
     olduser = getpass.getuser()
     oldgroup = grp.getgrgid(os.getgid()).gr_name
-    user, group = random.choice(list(set(ctx.user_groups) - set([(olduser, oldgroup)])))
-    sudobuild = _shell_ast.SimpleCommand.make('sudo', '-E', '-u', user, '-g', group)
+    user_group = random.choice(list(set(ctx.spec.user_group.available) - set([(olduser, oldgroup)])))
+    if ":" in user_group:
+        user, group = user_group.split(":", 1)
+        if user:
+            sudo_command = ('sudo', '-E', '-u', user, '-g', group)
+        else:
+            user = olduser
+            sudo_command = ('sudo', '-E', '-g', group)
+    else:
+        user = user_group # "user" is used below
+        sudo_command = ('sudo', '-E', '-u', user)
+    sudobuild = _shell_ast.SimpleCommand.make(*sudo_command)
     binpath = os.path.join(dirname(build.tree), 'bin')
 
     _ = build.append_to_build_command(sudobuild)
@@ -314,17 +318,18 @@ def user_group(ctx, build, vary):
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
 mkdir "{0}"
-printf '#!/bin/sh\nsudo -u "{1}" -g "{2}" /usr/bin/disorderfs "$@"\n' > "{0}"/disorderfs
+printf '#!/bin/sh\n{1} /usr/bin/disorderfs "$@"\n' > "{0}"/disorderfs
 chmod +x "{0}"/disorderfs
-printf '#!/bin/sh\nsudo -u "{1}" -g "{2}" /bin/mkdir "$@"\n' > "{0}"/mkdir
+printf '#!/bin/sh\n{1} /bin/mkdir "$@"\n' > "{0}"/mkdir
 chmod +x "{0}"/mkdir
-printf '#!/bin/sh\nsudo -u "{1}" -g "{2}" /bin/fusermount "$@"\n' > "{0}"/fusermount
+printf '#!/bin/sh\n{1} /bin/fusermount "$@"\n' > "{0}"/fusermount
 chmod +x "{0}"/fusermount
-'''.format(binpath, user, group))
+'''.format(binpath, " ".join(map(shlex.quote, sudo_command))))
     _ = _.append_setup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
-    _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
-    # TODO: artifacts probably shouldn't be chown'd back
-    _ = _.prepend_cleanup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % user, olduser, build.tree)
+    if user != olduser:
+        _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
+        # TODO: artifacts probably shouldn't be chown'd back
+        _ = _.prepend_cleanup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % user, olduser, build.tree)
     return _
 
 
@@ -347,3 +352,77 @@ VARIATIONS = collections.OrderedDict([
     ('timezone', timezone),
     ('umask', umask),
 ])
+
+
+class TimeVariation(collections.namedtuple('_TimeVariation', 'faketimes auto_faketimes')):
+    @classmethod
+    def default(cls):
+        return cls(mdiffconf.strlist_set(";"), mdiffconf.strlist_set(";", ['SOURCE_DATE_EPOCH']))
+
+    @classmethod
+    def empty(cls):
+        return cls(mdiffconf.strlist_set(";"), mdiffconf.strlist_set(";"))
+
+    def apply_dynamic_defaults(self, source_root):
+        new_faketimes = []
+        for a in self.auto_faketimes:
+            if a == "SOURCE_DATE_EPOCH":
+                # Get the latest modification date of all the files in the source root.
+                # This tries hard to avoid bad interactions with faketime and make(1) etc.
+                # However if you're building this too soon after changing one of the source
+                # files then the effect of this variation is not very great.
+                filemtimes = (os.path.getmtime(os.path.join(root, f)) for root, dirs, files in os.walk(source_root) for f in files)
+                new_faketimes.append("@%d" % int(max(filemtimes, default=0)))
+            else:
+                raise ValueError("unrecognized auto_faketime: %s" % a)
+        return self.empty()._replace(faketimes=self.faketimes + new_faketimes)
+
+
+class UserGroupVariation(collections.namedtuple('_UserGroupVariation', 'available')):
+    @classmethod
+    def default(cls):
+        return cls(mdiffconf.strlist_set(";"))
+
+
+class VariationSpec(mdiffconf.ImmutableNamespace):
+    @classmethod
+    def default(cls, variations=VARIATIONS):
+        default_overrides = {
+            "user_group": UserGroupVariation.default(),
+            "time": TimeVariation.default(),
+        }
+        return cls(**{k: default_overrides.get(k, True) for k in variations})
+
+    @classmethod
+    def empty(cls):
+        return cls()
+
+    aliases = { ("@+-", "all"): list(VARIATIONS.keys()) }
+    def extend(self, actions):
+        one = self.default()
+        return mdiffconf.parse_all(self, actions, one, one, self.aliases, sep=",")
+
+    def actions(self):
+        return [(k, k in self.__dict__, v) for k, v in VARIATIONS.items()]
+
+    def apply_dynamic_defaults(self, source_root):
+        return self.__class__(**{
+            k: v.apply_dynamic_defaults(source_root) if hasattr(v, "apply_dynamic_defaults") else v
+            for k, v in self.__dict__.items()
+        })
+
+
+class Variations(collections.namedtuple('_Variations', 'verbosity spec')):
+    @classmethod
+    def default(cls, *args, **kwargs):
+        return cls(0, VariationSpec.default(*args, **kwargs))
+
+
+if __name__ == "__main__":
+    import sys
+    d = VariationSpec()
+    for s in sys.argv[1:]:
+        d = d.append(s)
+        print(s)
+        print(">>>", d)
+    print("result", d.apply_dynamic_defaults("."))
