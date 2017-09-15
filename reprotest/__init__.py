@@ -243,11 +243,12 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
                 traceback.print_exc()
                 return 2
 
-        retcodes = [
-            run_diff(build_contexts[0].local_dist, bctx.local_dist, diffoscope_args, store_dir)
-            for bctx in build_contexts[1:]]
+        retcodes = collections.OrderedDict(
+            (bctx.build_name,
+             run_diff(build_contexts[0].local_dist, bctx.local_dist, diffoscope_args, store_dir))
+            for bctx in build_contexts[1:])
 
-        retcode = max(retcodes)
+        retcode = max(retcodes.values())
         if retcode == 0:
             print("=======================")
             print("Reproduction successful")
@@ -257,7 +258,11 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
                 'SHA256SUMS', store_dir,
                 cwd=os.path.join(build_contexts[0].local_dist, VSRC_DIR))
         else:
+            if 0 in retcodes.values():
+                print("Reproduction failed but partially successful: in %s" %
+                    ", ".join(name for name, r in retcodes.items() if r == 0))
             # a slight hack, to trigger no_clean_on_error
+            # TODO: this is out-of-date, see debian/TODO
             raise SystemExit(retcode)
         return retcode
 
@@ -363,6 +368,11 @@ def cli_parser():
         help='Like --variations, but appends to previous --vary values '
         'instead of overwriting them. Furthermore, the last value set for '
         '--variations is treated implicitly as the zeroth --vary value.')
+    group1.add_argument('--extra-build', metavar='VARIATIONS', default=[], action='append',
+        help='Perform another build with the given VARIATIONS (which may be '
+        'empty) to be applied on top of what was given for --variations and '
+        '--vary. Each occurence of this flag specifies another build, so e.g. '
+        'given twice this will make reprotest perform 4 builds in total.')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
@@ -510,7 +520,10 @@ def run(argv, check):
         logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
         variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     spec = VariationSpec().extend(variations)
-    build_variations = Variations.of(spec, verbosity=verbosity)
+    specs = [spec]
+    for extra_build in parsed_args.extra_build:
+        specs.append(spec.extend(extra_build))
+    build_variations = Variations.of(*specs, verbosity=verbosity)
 
     # Remaining args
     host_distro = parsed_args.host_distro

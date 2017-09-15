@@ -317,7 +317,7 @@ def user_group(ctx, build, vary):
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
-mkdir "{0}"
+mkdir -p "{0}"
 printf '#!/bin/sh\n{1} /usr/bin/disorderfs "$@"\n' > "{0}"/disorderfs
 chmod +x "{0}"/disorderfs
 printf '#!/bin/sh\n{1} /bin/mkdir "$@"\n' > "{0}"/mkdir
@@ -325,6 +325,8 @@ chmod +x "{0}"/mkdir
 printf '#!/bin/sh\n{1} /bin/fusermount "$@"\n' > "{0}"/fusermount
 chmod +x "{0}"/fusermount
 '''.format(binpath, " ".join(map(shlex.quote, sudo_command))))
+    _ = _.prepend_cleanup_exec('sh', '-ec',
+        'cd "{0}" && rm -f disorderfs mkdir fusermount'.format(binpath))
     _ = _.append_setup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
     if user != olduser:
         _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
