@@ -21,7 +21,7 @@ import pkg_resources
 from reprotest.lib import adtlog
 from reprotest.lib import adt_testbed
 from reprotest.build import Build, VariationSpec, Variations
-from reprotest import presets
+from reprotest import presets, shell_syn
 
 
 VIRT_PREFIX = "autopkgtest-virt-"
@@ -127,8 +127,6 @@ class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_d
             self.testbed_src, artifact_pattern)
         # remove any existing artifact, in case the build script doesn't overwrite
         # it e.g. like how make(1) sometimes works.
-        if re.search(r"""(^| )['"]*/""", artifact_pattern):
-            raise ValueError("artifact_pattern is possibly dangerous; maybe use a relative path instead?")
         testbed.check_exec(
             ['sh', '-ec', 'cd "%s" && rm -rf %s' %
             (self.testbed_src, artifact_pattern)])
@@ -183,6 +181,9 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
         raise ValueError("invalid source root: %s" % source_root)
     if os.path.isfile(source_root):
         source_root = os.path.normpath(os.path.dirname(source_root))
+
+    artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
+    logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
 
     if store_dir:
         store_dir = str(store_dir)
