@@ -245,7 +245,7 @@ previous values but the latter resets them. Furthermore, the last value set for
 means to vary +all (the default value for --variations) and -user_group (the
 given value for --vary), whereas::
 
-    reprotest --variations=-all --variations=home,time --vary=timezone --vary=-time
+    reprotest --variations=-all,locales --variations=home,time --vary=timezone --vary=-time
 
 means to vary home, time (the last given value for --variations), timezone, and
 -time (the given multiple values for --vary), i.e. home and timezone.
