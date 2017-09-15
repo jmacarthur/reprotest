@@ -79,7 +79,7 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
 # put build artifacts in ${dist}/source-root, to support tools that put artifacts in ..
 VSRC_DIR = "source-root"
 
-class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_dist_root local_src build_name')):
+class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_dist_root local_src build_name variations')):
     """
 
     The idiom os.path.join(x, '') is used here to ensure a trailing directory
@@ -105,15 +105,13 @@ class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_d
             tree = self.testbed_src
         )
 
-    def plan_variations(self, build, is_control, variations):
-        if is_control:
-            variations = variations._replace(spec=VariationSpec.empty())
-        actions = variations.spec.actions()
+    def plan_variations(self, build):
+        actions = self.variations.spec.actions()
         logging.info('build "%s": %s',
             self.build_name,
             ", ".join("%s %s" % ("FIX" if not vary else "vary", v) for v, vary, action in actions))
         for v, vary, action in actions:
-            build = action(variations, build, vary)
+            build = action(self.variations, build, vary)
         return build
 
     def copydown(self, testbed):
@@ -175,9 +173,10 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
             os.symlink(os.path.basename(dist_0), dist_1)
     return retcode
 
+
 def check(build_command, artifact_pattern, virtual_server_args, source_root,
           no_clean_on_error=False, store_dir=None, diffoscope_args=[],
-          variations=Variations.default(),
+          build_variations=Variations.of(VariationSpec.default()),
           testbed_pre=None, testbed_init=None, host_distro='debian'):
     # default argument [] is safe here because we never mutate it.
     if not source_root:
@@ -203,7 +202,8 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
             source_root = new_source_root
         logging.debug("source_root: %s", source_root)
 
-        variations = variations._replace(spec=variations.spec.apply_dynamic_defaults(source_root))
+        build_variations = [(n, v._replace(spec=v.spec.apply_dynamic_defaults(source_root)))
+            for n, v in build_variations]
 
         # TODO: an alternative strategy is to run the testbed many times, one for each build
         # not sure if it's worth implementing at this stage, but perhaps in the future.
@@ -216,15 +216,14 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
                 result_dir = os.path.join(temp_dir, 'artifacts')
                 os.makedirs(result_dir)
 
-            build_contexts = [BuildContext(testbed.scratch, result_dir, source_root, name)
-                for name in ('control', 'experiment')]
+            build_contexts = [BuildContext(testbed.scratch, result_dir, source_root, name, variations)
+                for name, variations in build_variations]
             builds = [bctx.make_build_commands(
                     'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
                 for bctx in build_contexts]
 
             logging.log(5, "builds: %r", builds)
-            builds = [c.plan_variations(b, c.build_name == "control", variations)
-                for c, b in zip(build_contexts, builds)]
+            builds = [c.plan_variations(b) for c, b in zip(build_contexts, builds)]
             logging.log(5, "builds: %r", builds)
 
             try:
@@ -511,7 +510,7 @@ def run(argv, check):
         logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
         variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     spec = VariationSpec().extend(variations)
-    variations = Variations(verbosity, spec)
+    build_variations = Variations.of(spec, verbosity=verbosity)
 
     # Remaining args
     host_distro = parsed_args.host_distro
@@ -526,8 +525,7 @@ def run(argv, check):
 
     check_args_keys = (
         "build_command", "artifact_pattern", "virtual_server_args", "source_root",
-        "no_clean_on_error", "store_dir", "diffoscope_args",
-        "variations",
+        "no_clean_on_error", "store_dir", "diffoscope_args", "build_variations",
         "testbed_pre", "testbed_init", "host_distro")
     l = locals()
     check_args = collections.OrderedDict([(k, l[k]) for k in check_args_keys])
@@ -539,6 +537,7 @@ def run(argv, check):
 def main():
     r = run(sys.argv[1:], check)
     if isinstance(r, collections.OrderedDict):
-        print("check(%s)" % ", ".join("%s=%r" % (k, v) for k, v in r.items()))
+        import pprint
+        pprint.pprint(r)
     else:
         return r

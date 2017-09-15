@@ -270,11 +270,11 @@ your use-case::
     $ cat <<EOF | sudo tee -a /etc/sudoers.d/local-reprotest
     $USER ALL = ($OTHERUSER) NOPASSWD: ALL
     $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/const_build_path/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-before-disorderfs/
+    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]/
+    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]-before-disorderfs/
     $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/const_build_path/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-before-disorderfs/
+    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]/
+    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]-before-disorderfs/
     EOF
 
 Repeat this for each user you'd like to use. Obviously, don't pick a privileged
