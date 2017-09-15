@@ -105,7 +105,7 @@ class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_d
             tree = self.testbed_src
         )
 
-    def plan_variations(self, build, is_control, variations): # XXX
+    def plan_variations(self, build, is_control, variations):
         if is_control:
             variations = variations._replace(spec=VariationSpec.empty())
         actions = variations.spec.actions()
@@ -309,11 +309,12 @@ def cli_parser():
     parser.add_argument('source_root|build_command', default=None, nargs='?',
         help='The first argument is treated either as a source_root (see the '
         '-s option) or as a build-command (see the -c option) depending on '
-        'some heuristics. Specifically: if neither -c nor -s are given, then: '
-        'if this exists as a file or directory and is not "auto", then this is '
-        'treated as a source_root, else as a build_command. Otherwise, if one '
-        'of -c or -s is given, then this is treated as the other one. If both '
-        'are given, then this is a command-line syntax error and we exit code 2.'),
+        'what it looks like. Most of the time, this should "just work"; but '
+        'specifically: if neither -c nor -s are given, then: if this exists as '
+        'a file or directory and is not "auto", then this is treated as a '
+        'source_root, else as a build_command. Otherwise, if one of -c or -s '
+        'is given, then this is treated as the other one. If both are given, '
+        'then this is a syntax error and we exit code 2.'),
     parser.add_argument('artifact_pattern', default=None, nargs='?',
         help='Build artifact to test for reproducibility. May be a shell '
              'pattern such as "*.deb *.changes".'),
@@ -353,9 +354,16 @@ def cli_parser():
         help='Save the artifacts in this directory, which must be empty or '
         'non-existent. Otherwise, the artifacts will be deleted and you only '
         'see their hashes (if reproducible) or the diff output (if not).')
-    group1.add_argument('--variations', default=["+all"], action='append',
-        help='Build variations to test as a whitespace-or-comma-separated '
-        'list.  Default is to test all available variations: %(default)s.')
+    group1.add_argument('--variations', default="+all",
+        help='Build variations to test as a comma-separated list of variation '
+        'names. Default is "+all", equivalent to "%s", testing all available '
+        'variations. See the man page section on VARIATIONS for more advanced '
+        'syntax options, including tweaking how certain variations work.' %
+        VariationSpec.default_long_string())
+    group1.add_argument('--vary', metavar='VARIATIONS', default=[], action='append',
+        help='Like --variations, but appends to previous --vary values '
+        'instead of overwriting them. Furthermore, the last value set for '
+        '--variations is treated implicitly as the zeroth --vary value.')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
@@ -498,9 +506,9 @@ def run(argv, check):
             diffoscope_args = values.diffoscope_args + diffoscope_args
 
     # Variations args
-    variations = parsed_args.variations
+    variations = [parsed_args.variations] + parsed_args.vary
     if parsed_args.dont_vary:
-        logging.warn("--dont-vary is deprecated; use --variations=-$variation instead")
+        logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
         variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     spec = VariationSpec().extend(variations)
     variations = Variations(verbosity, spec)

@@ -188,11 +188,75 @@ This flag is already set in our presets, in the situations where it is
 appropriate to do so.
 
 
-Varying the user
-================
+Variations
+==========
 
-If you also vary fileordering at the same time, each user you use needs to be
-in the "fuse" group. Do that by running `usermod -aG fuse $OTHERUSER` as root.
+The --vary and --variations flags in their simple forms, are a comma-separated
+list of variation names that indicate which variations to apply. The full list
+of names is given in the --help text for --variations.
+
+| \
+| In full detail, the flags are a comma-separated list of actions, as follows:
+|
+| +$variation (or $variation with no explicit operator)
+| -$variation
+|    Enable or disable a variation
+|
+| @$variation
+|    Enable a variation, resetting its parameters (see below) to default values.
+|
+| $variation.$param=$value
+| $variation.$param+=$value
+| $variation.$param-=$value
+|    Set/add/remove $value as/to/from the current value of the $param parameter
+     of the $variation.
+|
+| $variation.$param++
+| $variation.$param--
+|    Increment/decrement the value of the $param parameter of the $variation.
+
+Most variations do not have parameters, and for them only the + and - operators
+are relevant. The variations that accept parameters are:
+
+user_group.available
+    A semicolon-separated ordered set, specifying the available user+group
+    combinations that reprotest can ``sudo(1)`` to. Default is empty, in which
+    case the variation is a no-op, and you'll see a warning about this. Each
+    user+group should be given in the form $user:$group where either component
+    can be omitted, or else if there is no colon then it is interpreted as only
+    a $user, with no $group variation.
+time.faketimes
+    A semicolon-separated ordered set, specifying possible ``faketime(1)`` time
+    descriptors to use. Default is empty.
+time.auto_faketimes
+    A semicolon-separated ordered set, specifying a list of "magic" values
+    which will be resolved into additional values for time.faketimes. Default
+    is "SOURCE_DATE_EPOCH", possible values are:
+
+    SOURCE_DATE_EPOCH
+        Use the latest file modification time found in the source_root.
+
+The difference between --vary and --variations is that the former appends onto
+previous values but the latter resets them. Furthermore, the last value set for
+--variations is treated as the zeroth --vary argument. For example::
+
+    reprotest --vary=-user_group
+
+means to vary +all (the default value for --variations) and -user_group (the
+given value for --vary), whereas::
+
+    reprotest --variations=-all --variations=home,time --vary=timezone --vary=-time
+
+means to vary home, time (the last given value for --variations), timezone, and
+-time (the given multiple values for --vary), i.e. home and timezone.
+
+
+Varying the user or group
+=========================
+
+If you also vary fileordering at the same time (this is the case by default),
+each user you use needs to be in the "fuse" group. Do that by running `usermod
+-aG fuse $OTHERUSER` as root.
 
 Avoid sudo(1) password prompts
 ------------------------------
@@ -223,10 +287,10 @@ know what the sudo authors were thinking.)
 No, this is really not nice at all - suggestions and patches welcome.
 
 
-Known bugs
-==========
+Varying the time
+================
 
-The "time" variation uses **faketime** which *sometimes* causes weird and
+The "time" variation uses ``faketime(1)`` which *sometimes* causes weird and
 hard-to-diagnose problems. In the past, this has included:
 
 - builds taking an infinite amount of time; though this should be fixed in

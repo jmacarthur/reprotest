@@ -140,8 +140,10 @@ def parse(d, action, one, zero=None, aliases={}):
             single $alias_operand to specify one-or-more $real_operands to
             actually apply the operator to.
     """
+    if not action: return d
     parts = re.split(r"(\+=|-=|\+\+|--|=|\+|-|@)", action, 1)
     attr, op, operand = ("", "+", parts[0]) if len(parts) == 1 else parts
+    attr = attr.strip()
     target, target_one = rgetattr2(d, attr, one)
 
     if op in ("++", "--"):

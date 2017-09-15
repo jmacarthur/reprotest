@@ -394,6 +394,11 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
         return cls(**{k: default_overrides.get(k, True) for k in variations})
 
     @classmethod
+    def default_long_string(cls):
+        actions = cls.default().actions()
+        return ", ".join("+" + a[0] for a in actions)
+
+    @classmethod
     def empty(cls):
         return cls()
 

@@ -1,8 +1,5 @@
 reprotest (0.7) UNRELEASED; urgency=medium
 
-  FIXME do not release
-  - update the docs on --variations
-
   [ Ximin Luo ]
   * Document when one should use --diffoscope-args=--exclude-directory-metadata
     and do this in our Debian package presets.
@@ -13,7 +10,7 @@ reprotest (0.7) UNRELEASED; urgency=medium
   * Heavy refactoring to support > 2 builds.
   * Add a variation config language to be able to configure the specifics of
     different variations, and to make it easier to configure further builds.
-  * Deprecate the --dont-vary flag.
+  * Deprecate the --dont-vary flag, add a --vary flag for better composability.
 
   [ Mattia Rizzolo ]
   * Bump Standards-Version to 4.0.0.

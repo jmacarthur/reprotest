@@ -14,7 +14,7 @@ REPROTEST_TEST_SERVERS = os.getenv("REPROTEST_TEST_SERVERS", "null").split(",")
 REPROTEST_TEST_DONTVARY = os.getenv("REPROTEST_TEST_DONTVARY", "").split(",")
 
 if REPROTEST_TEST_DONTVARY:
-    REPROTEST += ["--variations=-" + ",-".join(REPROTEST_TEST_DONTVARY)]
+    REPROTEST += ["--vary=-" + ",-".join(REPROTEST_TEST_DONTVARY)]
 
 TEST_VARIATIONS = frozenset(reprotest.build.VARIATIONS.keys()) - frozenset(REPROTEST_TEST_DONTVARY)
 
