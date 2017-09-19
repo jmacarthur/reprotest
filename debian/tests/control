@@ -1,2 +1,1 @@
-Tests: tests.py
-Tests-Directory: tests
+Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group pytest-3
