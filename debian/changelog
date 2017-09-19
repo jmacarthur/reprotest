@@ -13,10 +13,10 @@ reprotest (0.7) UNRELEASED; urgency=medium
   * Deprecate the --dont-vary flag, add a --vary flag for better composability.
   * Support >2 builds using the new --extra-build flag.
   * Properly sanitize artifact_pattern to avoid arbitrary shell execution.
+  * Update to Standards-Version 4.1.0.
 
   [ Mattia Rizzolo ]
-  * Bump Standards-Version to 4.0.0.
-    + Use https for the Format URI in debian/copyright.
+  * Use https for the Format URI in debian/copyright.
   * Bump debhelper compat level to 10.
 
   [ Santiago Torres ]
