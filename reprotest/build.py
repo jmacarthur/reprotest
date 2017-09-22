@@ -421,10 +421,8 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
 
 class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
     @classmethod
-    def of(cls, *specs, verbosity=0):
-        return [("control", cls(VariationSpec.empty(), verbosity))] + [
-            ("experiment-%s" % i, cls(spec, verbosity))
-            for i, spec in enumerate(specs, 1)]
+    def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0):
+        return [cls(spec, verbosity) for spec in [zero] + list(specs)]
 
 
 if __name__ == "__main__":

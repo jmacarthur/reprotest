@@ -216,9 +216,13 @@ def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_cl
         with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
                            host_distro=host_distro) as testbed:
             name_variation = yield
-
+            names_seen = set()
             while name_variation:
                 name, var = name_variation
+                if name in names_seen:
+                    raise ValueError("already built '%s'" % name)
+                names_seen.add(name)
+
                 var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
                 bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
@@ -262,11 +266,12 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
             build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
             virtual_server_args, testbed_pre, testbed_init, host_distro)
 
-        local_dists = [proc.send(nv) for nv in build_variations]
+        bnames = ["control"] + ["experiment-%s" % i for i in range(1, len(build_variations))]
+        local_dists = [proc.send(nv) for nv in zip(bnames, build_variations)]
 
         retcodes = collections.OrderedDict(
             (bname, run_diff(local_dists[0], dist, diffoscope_args, store_dir))
-            for (bname, _), dist in zip(build_variations, local_dists[1:]))
+            for bname, dist in zip(bnames, local_dists[1:]))
 
         retcode = max(retcodes.values())
         if retcode == 0:
