@@ -404,10 +404,17 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
     def empty(cls):
         return cls()
 
+    @classmethod
+    def all_names(cls):
+        return list(VARIATIONS.keys())
+
     aliases = { ("@+-", "all"): list(VARIATIONS.keys()) }
     def extend(self, actions):
         one = self.default()
         return mdiffconf.parse_all(self, actions, one, one, self.aliases, sep=",")
+
+    def __getitem__(self, k):
+        return self.__dict__[k]
 
     def actions(self):
         return [(k, k in self.__dict__, v) for k, v in VARIATIONS.items()]

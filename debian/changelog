@@ -1,3 +1,11 @@
+reprotest (0.7.1) UNRELEASED; urgency=medium
+
+  * Add a --auto-build option to try to determine which specific variations
+    cause unreproducibility.
+  * Fix varying both umask and user_group at the same time.
+
+ -- Ximin Luo <infinity0@debian.org>  Fri, 22 Sep 2017 17:57:31 +0200
+
 reprotest (0.7) unstable; urgency=medium
 
   [ Ximin Luo ]

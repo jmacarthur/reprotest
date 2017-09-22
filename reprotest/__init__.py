@@ -8,6 +8,7 @@ import contextlib
 import logging
 import os
 import pathlib
+import random
 import re
 import shutil
 import subprocess
@@ -297,6 +298,56 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
         return retcode
 
 
+def check_auto(build_command, source_root, artifact_pattern, store_dir=None, no_clean_on_error=False,
+          virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian',
+          build_variations=Variations.of(VariationSpec.default()), diffoscope_args=[]):
+    # default argument [] is safe here because we never mutate it.
+    with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
+        assert store_dir == result_dir or store_dir is None
+        proc = corun_builds(
+            build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
+            virtual_server_args, testbed_pre, testbed_init, host_distro)
+
+        var_x0, var_x1 = build_variations
+        dist_x0 = proc.send(("control", var_x0))
+
+        def is_reproducible(name, var):
+            dist_test = proc.send(("experiment-%s" % name, var))
+            # TODO: handle exit codes > 1 correctly, raise a CalledProcessError
+            retcode = run_diff(dist_x0, dist_test, diffoscope_args, store_dir)
+            if retcode == 0:
+                return True
+            elif retcode == 1:
+                return False
+            else:
+                raise RuntimeError("diffoscope exited non-boolean %s, can't continue" % retcode)
+
+        if not is_reproducible("0", var_x0):
+            print("Not reproducible, even when fixing as much as reprotest knows how to. :(")
+            return 1
+
+        if is_reproducible("1", var_x1):
+            print("Reproducible, even when varying as much as reprotest knows how to! :)")
+            return 0
+
+        var_cur = var_x0
+        unreproducibles = []
+
+        varnames = VariationSpec.all_names()
+        random.shuffle(varnames)
+        for v in varnames:
+            var_test = var_cur._replace(spec=var_cur.spec._replace(**{v: var_x1.spec[v]}))
+            if is_reproducible(v, var_test):
+                # vary it for the next test as well, it's OK to vary it
+                var_cur = var_test
+            else:
+                # don't vary it for the next test, continue testing other variations
+                unreproducibles.append(v)
+        print("Observed unreproducibility when varying each of the following:")
+        print(" ".join(unreproducibles))
+        print("The build is probably reproducible when varying other things.")
+
+
 def config_to_args(parser, filename):
     if not filename:
         return []
@@ -398,11 +449,17 @@ def cli_parser():
         help='Like --variations, but appends to previous --vary values '
         'instead of overwriting them. Furthermore, the last value set for '
         '--variations is treated implicitly as the zeroth --vary value.')
-    group1.add_argument('--extra-build', metavar='VARIATIONS', default=[], action='append',
+    group1_0 = group1.add_mutually_exclusive_group()
+    group1_0.add_argument('--extra-build', metavar='VARIATIONS', default=[], action='append',
         help='Perform another build with the given VARIATIONS (which may be '
         'empty) to be applied on top of what was given for --variations and '
         '--vary. Each occurence of this flag specifies another build, so e.g. '
         'given twice this will make reprotest perform 4 builds in total.')
+    group1_0.add_argument('--auto-build', default=False, action='store_true',
+        help='Automatically perform builds to try to determine which specific '
+        'variations cause unreproducibility, potentially up to and including '
+        'the ones specified by --variations and --vary. Conflicts with '
+        '--extra-build.')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
@@ -551,8 +608,12 @@ def run(argv, check):
         variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     spec = VariationSpec().extend(variations)
     specs = [spec]
-    for extra_build in parsed_args.extra_build:
-        specs.append(spec.extend(extra_build))
+    if parsed_args.auto_build:
+        check_func = check_auto
+    else:
+        for extra_build in parsed_args.extra_build:
+            specs.append(spec.extend(extra_build))
+        check_func = check
     build_variations = Variations.of(*specs, verbosity=verbosity)
 
     # Remaining args
@@ -576,7 +637,7 @@ def run(argv, check):
         return check_args
     else:
         try:
-            return check(**check_args)
+            return check_func(**check_args)
         except Exception:
             traceback.print_exc()
             return 125
