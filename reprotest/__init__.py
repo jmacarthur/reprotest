@@ -79,6 +79,16 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
 # put build artifacts in ${dist}/source-root, to support tools that put artifacts in ..
 VSRC_DIR = "source-root"
 
+def coroutine(func):
+    """A decorator to automatically prime coroutines"""
+    # https://gist.github.com/dyerw/3d53e7cd94f05cc92c1c
+    def start(*args, **kwargs):
+        cr = func(*args, **kwargs)
+        next(cr)
+        return cr
+    return start
+
+
 class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_dist_root local_src build_name variations')):
     """
 
@@ -172,18 +182,66 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
     return retcode
 
 
+@coroutine
+def corun_builds(build_command, source_root, artifact_pattern, result_dir,
+               virtual_server_args, temp_dir, no_clean_on_error,
+               testbed_pre, testbed_init, host_distro):
+    """A coroutine for running the builds.
+
+    .>>> proc = corun_builds(...)
+    .>>> for name, var in variations:
+    .>>>     local_dist = proc.send((name, var))
+    .>>>     ...
+    """
+    if not source_root:
+        raise ValueError("invalid source root: %s" % source_root)
+    if os.path.isfile(source_root):
+        source_root = os.path.normpath(os.path.dirname(source_root))
+    source_root = str(source_root)
+
+    artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
+    logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
+    logging.debug("virtual_server_args: %r", virtual_server_args)
+
+    if testbed_pre:
+        new_source_root = os.path.join(temp_dir, "testbed_pre")
+        shutil.copytree(source_root, new_source_root, symlinks=True)
+        subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
+        source_root = new_source_root
+    logging.debug("source_root: %s", source_root)
+
+    # TODO: an alternative strategy is to run the testbed many times, one for each build
+    # not sure if it's worth implementing at this stage, but perhaps in the future.
+    with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
+                       host_distro=host_distro) as testbed:
+        name_variation = yield
+
+        while name_variation:
+            name, var = name_variation
+            var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
+            bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
+
+            build = bctx.make_build_commands(
+                'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
+            logging.log(5, "build %s: %r", name, build)
+            build = bctx.plan_variations(build)
+            logging.log(5, "build %s: %r", name, build)
+
+            if testbed_init:
+                testbed.check_exec(["sh", "-ec", testbed_init])
+
+            bctx.copydown(testbed)
+            bctx.run_build(testbed, build, artifact_pattern)
+            bctx.copyup(testbed)
+
+            name_variation = yield bctx.local_dist
+
+
 def check(build_command, artifact_pattern, virtual_server_args, source_root,
           no_clean_on_error=False, store_dir=None, diffoscope_args=[],
           build_variations=Variations.of(VariationSpec.default()),
           testbed_pre=None, testbed_init=None, host_distro='debian'):
     # default argument [] is safe here because we never mutate it.
-    if not source_root:
-        raise ValueError("invalid source root: %s" % source_root)
-    if os.path.isfile(source_root):
-        source_root = os.path.normpath(os.path.dirname(source_root))
-
-    artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
-    logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
 
     if store_dir:
         store_dir = str(store_dir)
@@ -192,62 +250,27 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
         elif os.listdir(store_dir):
             raise ValueError("store_dir must be empty: %s" % store_dir)
 
-    logging.debug("virtual_server_args: %r", virtual_server_args)
-
-    source_root = str(source_root)
     with tempfile.TemporaryDirectory() as temp_dir:
-        if testbed_pre:
-            new_source_root = os.path.join(temp_dir, "testbed_pre")
-            shutil.copytree(source_root, new_source_root, symlinks=True)
-            subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
-            source_root = new_source_root
-        logging.debug("source_root: %s", source_root)
+        if store_dir:
+            result_dir = store_dir
+        else:
+            result_dir = os.path.join(temp_dir, 'artifacts')
+            os.makedirs(result_dir)
 
-        build_variations = [(n, v._replace(spec=v.spec.apply_dynamic_defaults(source_root)))
-            for n, v in build_variations]
+        try:
+            proc = corun_builds(
+                build_command, source_root, artifact_pattern, result_dir,
+                virtual_server_args, temp_dir, no_clean_on_error,
+                testbed_pre, testbed_init, host_distro)
+            local_dists = [proc.send(nv) for nv in build_variations]
 
-        # TODO: an alternative strategy is to run the testbed many times, one for each build
-        # not sure if it's worth implementing at this stage, but perhaps in the future.
-        with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
-                host_distro=host_distro) as testbed:
-
-            if store_dir:
-                result_dir = store_dir
-            else:
-                result_dir = os.path.join(temp_dir, 'artifacts')
-                os.makedirs(result_dir)
-
-            build_contexts = [BuildContext(testbed.scratch, result_dir, source_root, name, variations)
-                for name, variations in build_variations]
-            builds = [bctx.make_build_commands(
-                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
-                for bctx in build_contexts]
-
-            logging.log(5, "builds: %r", builds)
-            builds = [c.plan_variations(b) for c, b in zip(build_contexts, builds)]
-            logging.log(5, "builds: %r", builds)
-
-            try:
-                # run the scripts
-                if testbed_init:
-                    testbed.check_exec(["sh", "-ec", testbed_init])
-
-                for bctx in build_contexts:
-                    bctx.copydown(testbed)
-
-                for bctx, build in zip(build_contexts, builds):
-                    bctx.run_build(testbed, build, artifact_pattern)
-
-                for bctx in build_contexts:
-                    bctx.copyup(testbed)
-            except Exception:
-                traceback.print_exc()
-                return 2
+        except Exception:
+            traceback.print_exc()
+            return 2
 
         retcodes = collections.OrderedDict(
-            (bctx.build_name,
-             run_diff(build_contexts[0].local_dist, bctx.local_dist, diffoscope_args, store_dir))
-            for bctx in build_contexts[1:])
+            (bname, run_diff(local_dists[0], dist, diffoscope_args, store_dir))
+            for (bname, _), dist in zip(build_variations, local_dists[1:]))
 
         retcode = max(retcodes.values())
         if retcode == 0:
@@ -257,7 +280,7 @@ def check(build_command, artifact_pattern, virtual_server_args, source_root,
             print("No differences in %s" % artifact_pattern, flush=True)
             run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % artifact_pattern],
                 'SHA256SUMS', store_dir,
-                cwd=os.path.join(build_contexts[0].local_dist, VSRC_DIR))
+                cwd=os.path.join(local_dists[0], VSRC_DIR))
         else:
             if 0 in retcodes.values():
                 print("Reproduction failed but partially successful: in %s" %
