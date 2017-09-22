@@ -18,24 +18,17 @@ if REPROTEST_TEST_DONTVARY:
 
 TEST_VARIATIONS = frozenset(reprotest.build.VARIATIONS.keys()) - frozenset(REPROTEST_TEST_DONTVARY)
 
-def check_return_code(command, virtual_server, code):
-    try:
-        build_variations = reprotest.build.Variations.of(
-            reprotest.build.VariationSpec.default(TEST_VARIATIONS))
-        retcode = reprotest.check(command, 'tests', 'artifact',
-            virtual_server_args=virtual_server, build_variations=build_variations)
-    except SystemExit as system_exit:
-        retcode = system_exit.args[0]
-    finally:
-        if isinstance(code, int):
-            assert(retcode == code)
-        else:
-            assert(retcode in code)
+def check_reproducibility(command, virtual_server, reproducible):
+    build_variations = reprotest.build.Variations.of(
+        reprotest.build.VariationSpec.default(TEST_VARIATIONS))
+    result = reprotest.check(command, 'tests', 'artifact',
+        virtual_server_args=virtual_server, build_variations=build_variations)
+    assert result == reproducible
 
 def check_command_line(command_line, code=None):
     try:
         retcode = 0
-        return reprotest.run(command_line, lambda **x: x)
+        return reprotest.run(command_line, True)
     except SystemExit as system_exit:
         retcode = system_exit.args[0]
     finally:
@@ -58,15 +51,16 @@ def virtual_server(request):
         raise ValueError(request.param)
 
 def test_simple_builds(virtual_server):
-    check_return_code('python3 mock_build.py', virtual_server, 0)
-    check_return_code('python3 mock_failure.py', virtual_server, 2)
-    check_return_code('python3 mock_build.py irreproducible', virtual_server, 1)
+    check_reproducibility('python3 mock_build.py', virtual_server, True)
+    with pytest.raises(Exception):
+        check_reproducibility('python3 mock_failure.py', virtual_server)
+    check_reproducibility('python3 mock_build.py irreproducible', virtual_server, False)
 
 # TODO: test all variations that we support
 @pytest.mark.parametrize('captures', list(reprotest.build.VARIATIONS.keys()))
 def test_variations(virtual_server, captures):
-    expected = 1 if captures in TEST_VARIATIONS else 0
-    check_return_code('python3 mock_build.py ' + captures, virtual_server, expected)
+    expected = captures not in TEST_VARIATIONS
+    check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
 
 def test_self_build(virtual_server):
     # at time of writing (2016-09-23) these are not expected to reproduce;

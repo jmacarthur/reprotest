@@ -288,14 +288,14 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
             run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % artifact_pattern],
                 'SHA256SUMS', store_dir,
                 cwd=os.path.join(local_dists[0], VSRC_DIR))
-        else:
+        elif retcode == 1:
             if 0 in retcodes.values():
                 print("Reproduction failed but partially successful: in %s" %
                     ", ".join(name for name, r in retcodes.items() if r == 0))
-            # a slight hack, to trigger no_clean_on_error
-            # TODO: this is out-of-date, see debian/TODO
-            raise SystemExit(retcode)
-        return retcode
+        else:
+            raise RuntimeError("diffoscope exited non-boolean %s" % retcode)
+
+        return not retcode
 
 
 def check_auto(build_command, source_root, artifact_pattern, store_dir=None, no_clean_on_error=False,
@@ -324,11 +324,11 @@ def check_auto(build_command, source_root, artifact_pattern, store_dir=None, no_
 
         if not is_reproducible("0", var_x0):
             print("Not reproducible, even when fixing as much as reprotest knows how to. :(")
-            return 1
+            return False
 
         if is_reproducible("1", var_x1):
             print("Reproducible, even when varying as much as reprotest knows how to! :)")
-            return 0
+            return True
 
         var_cur = var_x0
         unreproducibles = []
@@ -343,9 +343,11 @@ def check_auto(build_command, source_root, artifact_pattern, store_dir=None, no_
             else:
                 # don't vary it for the next test, continue testing other variations
                 unreproducibles.append(v)
+
         print("Observed unreproducibility when varying each of the following:")
         print(" ".join(unreproducibles))
         print("The build is probably reproducible when varying other things.")
+        return False
 
 
 def config_to_args(parser, filename):
@@ -535,7 +537,7 @@ def command_line(parser, argv):
     return args
 
 
-def run(argv, check):
+def run(argv, dry_run=None):
     # Argparse exits with status code 2 if something goes wrong, which
     # is already the right status exit code for reprotest.
     parser = cli_parser()
@@ -633,18 +635,18 @@ def run(argv, check):
         "testbed_pre", "testbed_init", "host_distro")
     l = locals()
     check_args = collections.OrderedDict([(k, l[k]) for k in check_args_keys])
-    if parsed_args.dry_run:
+    if parsed_args.dry_run or dry_run:
         return check_args
     else:
         try:
-            return check_func(**check_args)
+            return 0 if check_func(**check_args) else 1
         except Exception:
             traceback.print_exc()
             return 125
 
 
 def main():
-    r = run(sys.argv[1:], check)
+    r = run(sys.argv[1:])
     if isinstance(r, collections.OrderedDict):
         import pprint
         pprint.pprint(r)
