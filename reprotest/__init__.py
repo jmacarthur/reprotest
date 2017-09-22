@@ -258,15 +258,11 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
     # default argument [] is safe here because we never mutate it.
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
-        try:
-            proc = corun_builds(
-                build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
-                virtual_server_args, testbed_pre, testbed_init, host_distro)
-            local_dists = [proc.send(nv) for nv in build_variations]
+        proc = corun_builds(
+            build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
+            virtual_server_args, testbed_pre, testbed_init, host_distro)
 
-        except Exception:
-            traceback.print_exc()
-            return 2
+        local_dists = [proc.send(nv) for nv in build_variations]
 
         retcodes = collections.OrderedDict(
             (bname, run_diff(local_dists[0], dist, diffoscope_args, store_dir))
@@ -569,7 +565,12 @@ def run(argv, check):
     if parsed_args.dry_run:
         return check_args
     else:
-        return check(**check_args)
+        try:
+            return check(**check_args)
+        except Exception:
+            traceback.print_exc()
+            return 125
+
 
 def main():
     r = run(sys.argv[1:], check)
