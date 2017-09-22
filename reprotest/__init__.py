@@ -183,9 +183,8 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
 
 
 @coroutine
-def corun_builds(build_command, source_root, artifact_pattern, result_dir,
-               virtual_server_args, temp_dir, no_clean_on_error,
-               testbed_pre, testbed_init, host_distro):
+def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
+                 virtual_server_args, testbed_pre, testbed_init, host_distro):
     """A coroutine for running the builds.
 
     .>>> proc = corun_builds(...)
@@ -203,65 +202,66 @@ def corun_builds(build_command, source_root, artifact_pattern, result_dir,
     logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
     logging.debug("virtual_server_args: %r", virtual_server_args)
 
-    if testbed_pre:
-        new_source_root = os.path.join(temp_dir, "testbed_pre")
-        shutil.copytree(source_root, new_source_root, symlinks=True)
-        subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
-        source_root = new_source_root
-    logging.debug("source_root: %s", source_root)
-
-    # TODO: an alternative strategy is to run the testbed many times, one for each build
-    # not sure if it's worth implementing at this stage, but perhaps in the future.
-    with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
-                       host_distro=host_distro) as testbed:
-        name_variation = yield
-
-        while name_variation:
-            name, var = name_variation
-            var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
-            bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
-
-            build = bctx.make_build_commands(
-                'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
-            logging.log(5, "build %s: %r", name, build)
-            build = bctx.plan_variations(build)
-            logging.log(5, "build %s: %r", name, build)
-
-            if testbed_init:
-                testbed.check_exec(["sh", "-ec", testbed_init])
-
-            bctx.copydown(testbed)
-            bctx.run_build(testbed, build, artifact_pattern)
-            bctx.copyup(testbed)
-
-            name_variation = yield bctx.local_dist
-
-
-def check(build_command, artifact_pattern, virtual_server_args, source_root,
-          no_clean_on_error=False, store_dir=None, diffoscope_args=[],
-          build_variations=Variations.of(VariationSpec.default()),
-          testbed_pre=None, testbed_init=None, host_distro='debian'):
-    # default argument [] is safe here because we never mutate it.
-
-    if store_dir:
-        store_dir = str(store_dir)
-        if not os.path.exists(store_dir):
-            os.makedirs(store_dir, exist_ok=False)
-        elif os.listdir(store_dir):
-            raise ValueError("store_dir must be empty: %s" % store_dir)
-
+    # TODO: if no_clean_on_error then this shouldn't be rm'd
     with tempfile.TemporaryDirectory() as temp_dir:
-        if store_dir:
-            result_dir = store_dir
-        else:
-            result_dir = os.path.join(temp_dir, 'artifacts')
-            os.makedirs(result_dir)
+        if testbed_pre:
+            new_source_root = os.path.join(temp_dir, "testbed_pre")
+            shutil.copytree(source_root, new_source_root, symlinks=True)
+            subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
+            source_root = new_source_root
+        logging.debug("source_root: %s", source_root)
 
+        # TODO: an alternative strategy is to run the testbed many times, one for each build
+        # not sure if it's worth implementing at this stage, but perhaps in the future.
+        with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
+                           host_distro=host_distro) as testbed:
+            name_variation = yield
+
+            while name_variation:
+                name, var = name_variation
+                var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
+                bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
+
+                build = bctx.make_build_commands(
+                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
+                logging.log(5, "build %s: %r", name, build)
+                build = bctx.plan_variations(build)
+                logging.log(5, "build %s: %r", name, build)
+
+                if testbed_init:
+                    testbed.check_exec(["sh", "-ec", testbed_init])
+
+                bctx.copydown(testbed)
+                bctx.run_build(testbed, build, artifact_pattern)
+                bctx.copyup(testbed)
+
+                name_variation = yield bctx.local_dist
+
+
+@contextlib.contextmanager
+def empty_or_temp_dir(empty_dir, name):
+    if empty_dir:
+        empty_dir = str(empty_dir)
+        if not os.path.exists(empty_dir):
+            os.makedirs(empty_dir, exist_ok=False)
+        elif os.listdir(empty_dir):
+            raise ValueError("%s must be empty: %s" % (name, empty_dir))
+        yield empty_dir
+    else:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield temp_dir
+
+
+def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean_on_error=False,
+          virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian',
+          build_variations=Variations.of(VariationSpec.default()), diffoscope_args=[]):
+    # default argument [] is safe here because we never mutate it.
+    with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
+        assert store_dir == result_dir or store_dir is None
         try:
             proc = corun_builds(
-                build_command, source_root, artifact_pattern, result_dir,
-                virtual_server_args, temp_dir, no_clean_on_error,
-                testbed_pre, testbed_init, host_distro)
+                build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
+                virtual_server_args, testbed_pre, testbed_init, host_distro)
             local_dists = [proc.send(nv) for nv in build_variations]
 
         except Exception:

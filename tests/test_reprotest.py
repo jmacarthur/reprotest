@@ -22,8 +22,8 @@ def check_return_code(command, virtual_server, code):
     try:
         build_variations = reprotest.build.Variations.of(
             reprotest.build.VariationSpec.default(TEST_VARIATIONS))
-        retcode = reprotest.check(command, 'artifact', virtual_server, 'tests',
-            build_variations=build_variations)
+        retcode = reprotest.check(command, 'tests', 'artifact',
+            virtual_server_args=virtual_server, build_variations=build_variations)
     except SystemExit as system_exit:
         retcode = system_exit.args[0]
     finally:
