@@ -141,7 +141,10 @@ class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_d
             ['sh', '-ec', 'cd "%s" && rm -rf %s' %
             (self.testbed_src, artifact_pattern)])
         # this dance is necessary because the cwd can't be cd'd into during the setup phase under some variations like user_group
-        new_script = build.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % build.tree).to_script()
+        _ = build
+        _ = _.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % build.tree)
+        _ = _.append_setup_exec_raw('export', 'REPROTEST_UMASK=$(umask)')
+        new_script = _.to_script()
         logging.info("executing: %s", new_script)
         argv = ['sh', '-ec', new_script]
         xenv = ['%s=%s' % (k, v) for k, v in build.env.items()]
@@ -227,7 +230,9 @@ def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_cl
                 bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
                 build = bctx.make_build_commands(
-                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' + build_command, os.environ)
+                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
+                    'umask "$REPROTEST_UMASK"; unset REPROTEST_UMASK; ' +
+                    build_command, os.environ)
                 logging.log(5, "build %s: %r", name, build)
                 build = bctx.plan_variations(build)
                 logging.log(5, "build %s: %r", name, build)
