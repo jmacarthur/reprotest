@@ -288,10 +288,14 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
             run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % artifact_pattern],
                 'SHA256SUMS', store_dir,
                 cwd=os.path.join(local_dists[0], VSRC_DIR))
+            if any(bctx.spec.variations() != VariationSpec.all_names() for bctx in build_variations[1:]):
+                print("However, other factors may still make the build unreproducible; try re-running with --vary=+all.")
+
         elif retcode == 1:
             if 0 in retcodes.values():
                 print("Reproduction failed but partially successful: in %s" %
                     ", ".join(name for name, r in retcodes.items() if r == 0))
+
         else:
             raise RuntimeError("diffoscope exited non-boolean %s" % retcode)
 

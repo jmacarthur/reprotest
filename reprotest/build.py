@@ -408,6 +408,9 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
     def all_names(cls):
         return list(VARIATIONS.keys())
 
+    def variations(self):
+        return [k for k in VARIATIONS.keys() if k in self.__dict__]
+
     aliases = { ("@+-", "all"): list(VARIATIONS.keys()) }
     def extend(self, actions):
         one = self.default()
