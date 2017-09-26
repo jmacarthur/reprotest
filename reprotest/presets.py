@@ -83,8 +83,9 @@ def parse_dsc_aux(path):
     return [x.split()[-1].decode("utf-8") for x in dscfiles.splitlines()]
 
 def preset_deb_dsc(fn, aux):
+    # we use "$(basename "$PWD")" so that the dirname varies iff we are varying the whole build path
     return PRESET_DEB_DIR.prepend.build_command(
-            'dpkg-source -x "%s" build && cd build && ' % fn
+            'dpkg-source -x "%s" "$(basename "$PWD")" && cd "$(basename "$PWD")" && ' % fn
         ).set.artifact_pattern("*.deb"
         ).set.source_pattern(" ".join(shlex.quote(a) for a in [fn] + aux))
 
