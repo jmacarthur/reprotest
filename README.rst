@@ -78,7 +78,7 @@ directory" preset would look like, if we ran it using the full CLI::
     # In the non-preset full CLI, this is roughly similar to:
     $ reprotest \
         --testbed-init 'apt-get -y --no-install-recommends install \
-                        util-linux disorderfs 2>/dev/null; \
+                        disorderfs faketime locales-all sudo util-linux; \
                         test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229' \
         --build-command 'PATH=/sbin:/usr/sbin:$PATH apt-get -y --no-install-recommends build-dep ./; \
                          dpkg-buildpackage -uc -us -b' \
@@ -112,10 +112,10 @@ so that it uses our `experimental toolchain
 <https://wiki.debian.org/ReproducibleBuilds/ExperimentalToolchain>`__::
 
     $ reprotest --store-dir=artifacts \
-        --auto-preset-expr '_.prepend.testbed_init("apt-get install -y wget 2>/dev/null; \
+        --auto-preset-expr '_.prepend.testbed_init("apt-get install -y wget; \
             echo deb http://reproducible.alioth.debian.org/debian/ ./ >> /etc/apt/sources.list; \
-            wget -q -O- https://reproducible.alioth.debian.org/reproducible.asc | apt-key add - 2>/dev/null; \
-            apt-get update; apt-get upgrade -y 2>/dev/null; ")' \
+            wget -q -O- https://reproducible.alioth.debian.org/reproducible.asc | apt-key add -; \
+            apt-get update; apt-get upgrade -y; ")' \
         ./bash_4.4-4.0~reproducible1.dsc \
         -- \
         schroot unstable-amd64-sbuild

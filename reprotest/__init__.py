@@ -51,6 +51,17 @@ def get_all_servers():
 # variety of other options including Docker etc that use different
 # approaches.
 
+class Testbed(adt_testbed.Testbed):
+    def check_exec2(self, argv, stdout=False, kind='short', xenv=[]):
+        """Like check_exec but does not bomb on stderr, and can pass xenv."""
+        (code, out, err) = self.execute(argv,
+                                        stdout=(stdout and subprocess.PIPE or None),
+                                        xenv=xenv, kind=kind)
+        if code != 0:
+            self.bomb('"%s" failed with status %i' % (' '.join(argv), code),
+                      adtlog.AutopkgtestError)
+        return out
+
 @contextlib.contextmanager
 def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian'):
     '''This is a simple wrapper around adt_testbed that automates the
@@ -59,7 +70,7 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
     # path for the correct virt-server script.
     server_path = get_server_path(args[0])
     logging.info('STARTING VIRTUAL SERVER %r', [server_path] + args[1:])
-    testbed = adt_testbed.Testbed([server_path] + args[1:], temp_dir, None,
+    testbed = Testbed([server_path] + args[1:], temp_dir, None,
             host_distro=host_distro)
     testbed.start()
     testbed.open()
@@ -153,7 +164,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
             self.testbed_src, artifact_pattern)
         # remove any existing artifact, in case the build script doesn't overwrite
         # it e.g. like how make(1) sometimes works.
-        testbed.check_exec(
+        testbed.check_exec2(
             ['sh', '-ec', 'cd "%s" && rm -rf %s' %
             (self.testbed_src, artifact_pattern)])
         # this dance is necessary because the cwd can't be cd'd into during the setup phase under some variations like user_group
@@ -162,13 +173,11 @@ class BuildContext(collections.namedtuple('_BuildContext',
         _ = _.append_setup_exec_raw('export', 'REPROTEST_UMASK=$(umask)')
         new_script = _.to_script()
         logging.info("executing: %s", new_script)
-        argv = ['sh', '-ec', new_script]
-        xenv = ['%s=%s' % (k, v) for k, v in build.env.items()]
-        (code, _, _) = testbed.execute(argv, xenv=xenv, kind='build')
-        if code != 0:
-            testbed.bomb('"%s" failed with status %i' % (' '.join(argv), code), adtlog.AutopkgtestError)
+        testbed.check_exec2(['sh', '-ec', new_script],
+            xenv=['%s=%s' % (k, v) for k, v in build.env.items()],
+            kind='build')
         dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
-        testbed.check_exec(
+        testbed.check_exec2(
             ['sh', '-ec', """mkdir -p "{0}"
 cd "{1}" && cp --parents -a -t "{0}" {2}
 cd "{0}" && touch -d@0 . .. {2}
@@ -272,7 +281,7 @@ def corun_builds(test_args, testbed_args):
                 logging.log(5, "build %s: %r", name, build)
 
                 if testbed_init:
-                    testbed.check_exec(["sh", "-ec", testbed_init])
+                    testbed.check_exec2(["sh", "-ec", testbed_init])
 
                 bctx.copydown(testbed)
                 bctx.run_build(testbed, build, artifact_pattern)
