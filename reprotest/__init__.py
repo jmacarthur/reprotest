@@ -7,7 +7,6 @@ import configparser
 import contextlib
 import logging
 import os
-import pathlib
 import random
 import re
 import shlex
@@ -273,7 +272,7 @@ def corun_builds(test_args, testbed_args):
                 logging.log(5, "build %s: %r", name, build)
 
                 if testbed_init:
-                    check_exec(["sh", "-ec", testbed_init])
+                    testbed.check_exec(["sh", "-ec", testbed_init])
 
                 bctx.copydown(testbed)
                 bctx.run_build(testbed, build, artifact_pattern)
@@ -455,7 +454,7 @@ def cli_parser():
         help='Build command to execute. If this is "auto" then reprotest will '
         'guess how to build the given source_root, in which case various other '
         'options may be automatically set-if-unset. Default: auto'),
-    group1.add_argument('--store-dir', default=None, type=pathlib.Path,
+    group1.add_argument('--store-dir', default=None,
         help='Save the artifacts in this directory, which must be empty or '
         'non-existent. Otherwise, the artifacts will be deleted and you only '
         'see their hashes (if reproducible) or the diff output (if not).')
@@ -625,7 +624,7 @@ def run(argv, dry_run=None):
         artifact_pattern = artifact_pattern or values.artifact_pattern
         testbed_pre = testbed_pre or values.testbed_pre
         testbed_init = testbed_init or values.testbed_init
-        if diffoscope_args is not None:
+        if values.diffoscope_args is not None:
             diffoscope_args = values.diffoscope_args + diffoscope_args
 
     # Variations args
