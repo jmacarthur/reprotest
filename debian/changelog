@@ -8,6 +8,8 @@ reprotest (0.7.1) UNRELEASED; urgency=medium
     - using reprotest with default settings after not installing Recommends
   * Add a --source-pattern option to restrict copying of source_root, and set
     this automatically in our presets.
+  * Pass --exclude-directory-metadata to diffoscope(1) by default as this is
+    the majority use-case. Document the other cases in README and the man page.
 
  -- Ximin Luo <infinity0@debian.org>  Fri, 22 Sep 2017 17:57:31 +0200
 

@@ -507,8 +507,9 @@ def cli_parser():
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
     group2 = parser.add_argument_group('diff options')
-    group2.add_argument('--diffoscope-arg', default=[], action='append',
-        help='Give extra arguments to diffoscope when running it.')
+    group2.add_argument('--diffoscope-arg', action='append',
+        help='Give extra arguments to diffoscope when running it. Default: '
+        '%(default)s', default=['--exclude-directory-metadata'])
     group2.add_argument('--no-diffoscope', action='store_true', default=False,
         help='Don\'t run diffoscope; instead run diff(1). Useful if you '
         'don\'t want to install diffoscope and/or just want a quick answer '

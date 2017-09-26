@@ -64,7 +64,7 @@ PRESET_DEB_DIR = ReprotestPreset(
     testbed_pre = None,
     testbed_init = None,
     source_pattern = None,
-    diffoscope_args = ["--exclude-directory-metadata"],
+    diffoscope_args = [],
 )
 
 def preset_deb_schroot(preset):
