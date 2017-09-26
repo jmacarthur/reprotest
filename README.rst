@@ -304,14 +304,3 @@ If you see a difference that you really think should not be there, try passing
 ``--variations=-time`` to reprotest, and/or check our results on
 https://tests.reproducible-builds.org/ which use a different (more reliable)
 mechanism to vary the system time.
-
-
-Known bugs
-==========
-
-If the first argument is a file then reprotest will copy its whole directory.
-Sometimes this is unsuitable, e.g. when it contains 3GB of other stuff.
-Also if this copying fails (e.g. because irrelevant files are not copyable due
-to permissions) then reprotest might give a confusing error message about that.
-
-These will be fixed soon.

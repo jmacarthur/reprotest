@@ -115,6 +115,14 @@ def empty_or_temp_dir(empty_dir, name):
             yield temp_dir
 
 
+def shell_copy_pattern(dst, src, globs):
+    # assumes globs is already sanitized
+    # mkdir -p dst if it doesn't already exist
+    return ['sh', '-ec', """mkdir -p "{0}"
+cd "{1}" && cp --parents -a -t "{0}" {2}
+""".format(dst, src, globs)]
+
+
 class BuildContext(collections.namedtuple('_BuildContext',
     'testbed_root local_dist_root local_src build_name variations')):
     """
@@ -177,11 +185,10 @@ class BuildContext(collections.namedtuple('_BuildContext',
             xenv=['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
         dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
-        testbed.check_exec2(
-            ['sh', '-ec', """mkdir -p "{0}"
-cd "{1}" && cp --parents -a -t "{0}" {2}
-cd "{0}" && touch -d@0 . .. {2}
-""".format(dist_base, self.testbed_src, artifact_pattern)])
+        testbed.check_exec2(shell_copy_pattern(dist_base, self.testbed_src, artifact_pattern))
+        # FIXME: this is needed because of the FIXME in build.faketime(). we can rm it after that is fixed
+        testbed.check_exec2(['sh', '-ec',
+            r"""cd "{0}" && touch -d@0 . .. {1}""".format(dist_base, artifact_pattern)])
 
 
 def run_or_tee(progargs, filename, store_dir, *args, **kwargs):
@@ -218,12 +225,12 @@ class TestbedArgs(collections.namedtuple('_TestbedArgs',
 
 
 class TestArgs(collections.namedtuple('_Test',
-    'build_command source_root artifact_pattern result_dir no_clean_on_error diffoscope_args')):
+    'build_command source_root artifact_pattern result_dir source_pattern no_clean_on_error diffoscope_args')):
     @classmethod
     def default(cls, build_command, source_root, artifact_pattern, result_dir=None,
-                no_clean_on_error=False, diffoscope_args=[]):
+                source_pattern=None, no_clean_on_error=False, diffoscope_args=[]):
         return cls(build_command, source_root, artifact_pattern, result_dir,
-                   no_clean_on_error, diffoscope_args)
+                   source_pattern, no_clean_on_error, diffoscope_args)
 
 
 @coroutine
@@ -235,7 +242,7 @@ def corun_builds(test_args, testbed_args):
     .>>>     local_dist = proc.send((name, var))
     .>>>     ...
     """
-    build_command, source_root, artifact_pattern, result_dir, no_clean_on_error, diffoscope_args = test_args
+    build_command, source_root, artifact_pattern, result_dir, source_pattern, no_clean_on_error, diffoscope_args = test_args
     virtual_server_args, testbed_pre, testbed_init, host_distro = testbed_args
 
     if not source_root:
@@ -246,15 +253,19 @@ def corun_builds(test_args, testbed_args):
 
     artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
     logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
+    if source_pattern:
+        source_pattern = shell_syn.sanitize_globs(source_pattern)
+        logging.debug("source_pattern sanitized to: %s", source_pattern)
     logging.debug("virtual_server_args: %r", virtual_server_args)
 
     # TODO: if no_clean_on_error then this shouldn't be rm'd
     with tempfile.TemporaryDirectory() as temp_dir:
-        if testbed_pre:
+        if testbed_pre or source_pattern:
             new_source_root = os.path.join(temp_dir, "testbed_pre")
-            shutil.copytree(source_root, new_source_root, symlinks=True)
-            subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
+            subprocess.check_call(shell_copy_pattern(new_source_root, source_root, source_pattern or "."))
             source_root = new_source_root
+        if testbed_pre:
+            subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
         logging.debug("source_root: %s", source_root)
 
         # TODO: an alternative strategy is to run the testbed many times, one for each build
@@ -292,7 +303,7 @@ def corun_builds(test_args, testbed_args):
 
 def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
     # default argument [] is safe here because we never mutate it.
-    _, _, artifact_pattern, store_dir, _, diffoscope_args = test_args
+    _, _, artifact_pattern, store_dir, _, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
         proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
@@ -329,7 +340,7 @@ def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.
 
 def check_auto(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
     # default argument [] is safe here because we never mutate it.
-    _, _, _, store_dir, _, diffoscope_args = test_args
+    _, _, _, store_dir, _, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
         proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
@@ -459,6 +470,10 @@ def cli_parser():
         'and made available during the build. If a file is given here, then '
         'its parent directory is used instead. Default: "." (current working '
         'directory).')
+    group1.add_argument('--source-pattern', default=None,
+        help='Shell glob pattern to restrict the files in <source_root> that '
+        'are made available during the build. Default: empty, i.e. copy the '
+        'whole <source_root> directory with no restrictions.')
     group1.add_argument('-c', '--build-command', default=None,
         help='Build command to execute. If this is "auto" then reprotest will '
         'guess how to build the given source_root, in which case various other '
@@ -622,6 +637,7 @@ def run(argv, dry_run=None):
     testbed_pre = parsed_args.testbed_pre
     testbed_init = parsed_args.testbed_init
     diffoscope_args = parsed_args.diffoscope_arg
+    source_pattern = parsed_args.source_pattern
 
     # Do presets
     if build_command == 'auto':
@@ -635,6 +651,8 @@ def run(argv, dry_run=None):
         testbed_init = testbed_init or values.testbed_init
         if values.diffoscope_args is not None:
             diffoscope_args = values.diffoscope_args + diffoscope_args
+        if values.source_pattern is not None:
+            source_pattern = values.source_pattern + (" " + source_pattern if source_pattern else "")
 
     # Variations args
     variations = [parsed_args.variations] + parsed_args.vary
@@ -679,7 +697,7 @@ def run(argv, dry_run=None):
 
     testbed_args = TestbedArgs(virtual_server_args, testbed_pre, testbed_init, host_distro)
     test_args = TestArgs(build_command, source_root, artifact_pattern, store_dir,
-                         no_clean_on_error, diffoscope_args)
+                         source_pattern, no_clean_on_error, diffoscope_args)
 
     check_args = (test_args, testbed_args, build_variations)
     if parsed_args.dry_run or dry_run:
