@@ -309,10 +309,6 @@ mechanism to vary the system time.
 Known bugs
 ==========
 
-If the first argument is a file but it doesn't exist, then the heuristic will
-fail and reprotest might give a confusing error message about "No <artifact>
-provided".
-
 If the first argument is a file then reprotest will copy its whole directory.
 Sometimes this is unsuitable, e.g. when it contains 3GB of other stuff.
 Also if this copying fails (e.g. because irrelevant files are not copyable due

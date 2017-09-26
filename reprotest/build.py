@@ -2,17 +2,35 @@
 # For details: reprotest/debian/copyright
 
 import collections
+import functools
 import getpass
 import grp
 import logging
 import os
 import shlex
+import shutil
 import random
 import time
 import types
 
 from reprotest import _shell_ast
 from reprotest import mdiffconf
+
+
+def tool_required(*tools):
+    def wrap(f):
+        @functools.wraps(f)
+        def wf(*args, **kwargs):
+            return f(*args, **kwargs)
+        wf.tool_required = tools
+        return wf
+    return wrap
+
+
+def tool_missing(f):
+    if not hasattr(f, "tool_required"):
+        return []
+    return [t for t in f.tool_required if shutil.which(t) is None]
 
 
 def dirname(p):
@@ -174,6 +192,7 @@ def build_path(ctx, build, vary):
     const_path = os.path.join(dirname(build.tree), 'const_build_path')
     return build.move_tree(build.tree, const_path, True)
 
+@tool_required("disorderfs")
 def fileordering(ctx, build, vary):
     if not vary:
         return build
@@ -260,6 +279,7 @@ def timezone(ctx, build, vary):
     else:
         return build.add_env('TZ', 'GMT-14')
 
+@tool_required("faketime")
 def faketime(ctx, build, vary):
     if not vary:
         # FIXME: this does not actually fix the time, it just lets the system clock run normally
@@ -287,6 +307,7 @@ def umask(ctx, build, vary):
 
 # Note: this needs to go before anything that might need to run setup commands
 # as the other user (e.g. due to permissions).
+@tool_required("sudo")
 def user_group(ctx, build, vary):
     if not vary:
         return build

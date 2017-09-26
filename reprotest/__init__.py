@@ -10,6 +10,7 @@ import os
 import pathlib
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,7 @@ import pkg_resources
 
 from reprotest.lib import adtlog
 from reprotest.lib import adt_testbed
-from reprotest.build import Build, VariationSpec, Variations
+from reprotest.build import Build, VariationSpec, Variations, tool_missing
 from reprotest import presets, shell_syn
 
 
@@ -583,6 +584,13 @@ def run(argv, dry_run=None):
         elif os.path.exists(first_arg):
             source_root = first_arg
         else:
+            parts = shlex.split(first_arg)
+            if len(parts) == 1:
+                if shutil.which(parts[0]) is None:
+                    logging.warn("XXX")
+                    raise RuntimeError("Not found, neither as a file nor as a command: %s" % first_arg)
+            # if len(parts) > 1 then it could be something like '( command )'
+            # which is valid despite '(' not existing.
             build_command = first_arg
     build_command = build_command or parsed_args.build_command or "auto"
     source_root = source_root or parsed_args.source_root or '.'
@@ -621,6 +629,21 @@ def run(argv, dry_run=None):
             specs.append(spec.extend(extra_build))
         check_func = check
     build_variations = Variations.of(*specs, verbosity=verbosity)
+
+    # Warn about missing programs
+    if virtual_server_args[0] == "null":
+        missing = [(var, tool_missing(action))
+            for spec in specs
+            for var, vary, action in spec.actions()
+            if vary]
+        missing = [(var, tools) for var, tools in missing if tools]
+        for var, tools in missing:
+            if tools:
+                logging.warn("Varying '%s' requires these program(s): %s", var, ", ".join(tools))
+        if missing:
+            logging.warn("Your build will probably fail, either install them or disable the variations.")
+            logging.warn("(From a system package manager, simply install the 'optional' or 'recommended' "
+                         "dependencies of reprotest.)")
 
     # Remaining args
     host_distro = parsed_args.host_distro
