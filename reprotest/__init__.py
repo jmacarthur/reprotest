@@ -639,6 +639,8 @@ def run(argv, dry_run=None):
     testbed_init = parsed_args.testbed_init
     diffoscope_args = parsed_args.diffoscope_arg
     source_pattern = parsed_args.source_pattern
+    if verbosity >= 2:
+        diffoscope_args += ["--debug"]
 
     # Do presets
     if build_command == 'auto':
