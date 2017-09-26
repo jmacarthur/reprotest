@@ -91,7 +91,22 @@ def coroutine(func):
     return start
 
 
-class BuildContext(collections.namedtuple('_BuildContext', 'testbed_root local_dist_root local_src build_name variations')):
+@contextlib.contextmanager
+def empty_or_temp_dir(empty_dir, name):
+    if empty_dir:
+        empty_dir = str(empty_dir)
+        if not os.path.exists(empty_dir):
+            os.makedirs(empty_dir, exist_ok=False)
+        elif os.listdir(empty_dir):
+            raise ValueError("%s must be empty: %s" % (name, empty_dir))
+        yield empty_dir
+    else:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield temp_dir
+
+
+class BuildContext(collections.namedtuple('_BuildContext',
+    'testbed_root local_dist_root local_src build_name variations')):
     """
 
     The idiom os.path.join(x, '') is used here to ensure a trailing directory
@@ -187,16 +202,34 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
     return retcode
 
 
+class TestbedArgs(collections.namedtuple('_TestbedArgs',
+    'virtual_server_args testbed_pre testbed_init host_distro')):
+    @classmethod
+    def default(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian'):
+        return cls(virtual_server_args, testbed_pre, testbed_init, host_distro)
+
+
+class TestArgs(collections.namedtuple('_Test',
+    'build_command source_root artifact_pattern result_dir no_clean_on_error diffoscope_args')):
+    @classmethod
+    def default(cls, build_command, source_root, artifact_pattern, result_dir=None,
+                no_clean_on_error=False, diffoscope_args=[]):
+        return cls(build_command, source_root, artifact_pattern, result_dir,
+                   no_clean_on_error, diffoscope_args)
+
+
 @coroutine
-def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
-                 virtual_server_args, testbed_pre, testbed_init, host_distro):
+def corun_builds(test_args, testbed_args):
     """A coroutine for running the builds.
 
-    .>>> proc = corun_builds(...)
+    .>>> proc = corun_builds(test_args, testbed_args)
     .>>> for name, var in variations:
     .>>>     local_dist = proc.send((name, var))
     .>>>     ...
     """
+    build_command, source_root, artifact_pattern, result_dir, no_clean_on_error, diffoscope_args = test_args
+    virtual_server_args, testbed_pre, testbed_init, host_distro = testbed_args
+
     if not source_root:
         raise ValueError("invalid source root: %s" % source_root)
     if os.path.isfile(source_root):
@@ -240,7 +273,7 @@ def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_cl
                 logging.log(5, "build %s: %r", name, build)
 
                 if testbed_init:
-                    testbed.check_exec(["sh", "-ec", testbed_init])
+                    check_exec(["sh", "-ec", testbed_init])
 
                 bctx.copydown(testbed)
                 bctx.run_build(testbed, build, artifact_pattern)
@@ -249,29 +282,12 @@ def corun_builds(build_command, source_root, artifact_pattern, result_dir, no_cl
                 name_variation = yield bctx.local_dist
 
 
-@contextlib.contextmanager
-def empty_or_temp_dir(empty_dir, name):
-    if empty_dir:
-        empty_dir = str(empty_dir)
-        if not os.path.exists(empty_dir):
-            os.makedirs(empty_dir, exist_ok=False)
-        elif os.listdir(empty_dir):
-            raise ValueError("%s must be empty: %s" % (name, empty_dir))
-        yield empty_dir
-    else:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            yield temp_dir
-
-
-def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean_on_error=False,
-          virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian',
-          build_variations=Variations.of(VariationSpec.default()), diffoscope_args=[]):
+def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
     # default argument [] is safe here because we never mutate it.
+    _, _, artifact_pattern, store_dir, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
-        proc = corun_builds(
-            build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
-            virtual_server_args, testbed_pre, testbed_init, host_distro)
+        proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
 
         bnames = ["control"] + ["experiment-%s" % i for i in range(1, len(build_variations))]
         local_dists = [proc.send(nv) for nv in zip(bnames, build_variations)]
@@ -303,15 +319,12 @@ def check(build_command, source_root, artifact_pattern, store_dir=None, no_clean
         return not retcode
 
 
-def check_auto(build_command, source_root, artifact_pattern, store_dir=None, no_clean_on_error=False,
-          virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian',
-          build_variations=Variations.of(VariationSpec.default()), diffoscope_args=[]):
+def check_auto(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
     # default argument [] is safe here because we never mutate it.
+    _, _, _, store_dir, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
-        proc = corun_builds(
-            build_command, source_root, artifact_pattern, result_dir, no_clean_on_error,
-            virtual_server_args, testbed_pre, testbed_init, host_distro)
+        proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
 
         var_x0, var_x1 = build_variations
         dist_x0 = proc.send(("control", var_x0))
@@ -436,8 +449,8 @@ def cli_parser():
     group1.add_argument('-s', '--source-root', default=None,
         help='Root of the source tree, that is copied to the virtual server '
         'and made available during the build. If a file is given here, then '
-        'all files in its parent directory are available during the build. '
-        'Default: "." (current working directory).')
+        'its parent directory is used instead. Default: "." (current working '
+        'directory).')
     group1.add_argument('-c', '--build-command', default=None,
         help='Build command to execute. If this is "auto" then reprotest will '
         'guess how to build the given source_root, in which case various other '
@@ -656,17 +669,16 @@ def run(argv, dry_run=None):
         print("No <artifact> to test for differences provided. See --help for options.")
         sys.exit(2)
 
-    check_args_keys = (
-        "build_command", "artifact_pattern", "virtual_server_args", "source_root",
-        "no_clean_on_error", "store_dir", "diffoscope_args", "build_variations",
-        "testbed_pre", "testbed_init", "host_distro")
-    l = locals()
-    check_args = collections.OrderedDict([(k, l[k]) for k in check_args_keys])
+    testbed_args = TestbedArgs(virtual_server_args, testbed_pre, testbed_init, host_distro)
+    test_args = TestArgs(build_command, source_root, artifact_pattern, store_dir,
+                         no_clean_on_error, diffoscope_args)
+
+    check_args = (test_args, testbed_args, build_variations)
     if parsed_args.dry_run or dry_run:
         return check_args
     else:
         try:
-            return 0 if check_func(**check_args) else 1
+            return 0 if check_func(*check_args) else 1
         except Exception:
             traceback.print_exc()
             return 125
@@ -674,8 +686,8 @@ def run(argv, dry_run=None):
 
 def main():
     r = run(sys.argv[1:])
-    if isinstance(r, collections.OrderedDict):
+    if not isinstance(r, int):
         import pprint
-        pprint.pprint(r)
+        pprint.pprint(r, width=40, compact=True)
     else:
         return r

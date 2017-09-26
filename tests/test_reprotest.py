@@ -7,7 +7,7 @@ import sys
 
 import pytest
 import reprotest
-import reprotest.build
+from reprotest.build import VariationSpec, Variations, VARIATIONS
 
 REPROTEST = [sys.executable, "-m", "reprotest", "--no-diffoscope"]
 REPROTEST_TEST_SERVERS = os.getenv("REPROTEST_TEST_SERVERS", "null").split(",")
@@ -16,13 +16,13 @@ REPROTEST_TEST_DONTVARY = os.getenv("REPROTEST_TEST_DONTVARY", "").split(",")
 if REPROTEST_TEST_DONTVARY:
     REPROTEST += ["--vary=-" + ",-".join(REPROTEST_TEST_DONTVARY)]
 
-TEST_VARIATIONS = frozenset(reprotest.build.VARIATIONS.keys()) - frozenset(REPROTEST_TEST_DONTVARY)
+TEST_VARIATIONS = frozenset(VARIATIONS.keys()) - frozenset(REPROTEST_TEST_DONTVARY)
 
 def check_reproducibility(command, virtual_server, reproducible):
-    build_variations = reprotest.build.Variations.of(
-        reprotest.build.VariationSpec.default(TEST_VARIATIONS))
-    result = reprotest.check(command, 'tests', 'artifact',
-        virtual_server_args=virtual_server, build_variations=build_variations)
+    result = reprotest.check(
+        reprotest.TestArgs.default(command, 'tests', 'artifact'),
+        reprotest.TestbedArgs.default(virtual_server),
+        Variations.of(VariationSpec.default(TEST_VARIATIONS)))
     assert result == reproducible
 
 def check_command_line(command_line, code=None):
@@ -57,7 +57,7 @@ def test_simple_builds(virtual_server):
     check_reproducibility('python3 mock_build.py irreproducible', virtual_server, False)
 
 # TODO: test all variations that we support
-@pytest.mark.parametrize('captures', list(reprotest.build.VARIATIONS.keys()))
+@pytest.mark.parametrize('captures', list(VARIATIONS.keys()))
 def test_variations(virtual_server, captures):
     expected = captures not in TEST_VARIATIONS
     check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
@@ -72,34 +72,34 @@ def test_self_build(virtual_server):
     assert(1 == subprocess.call(REPROTEST + ['python3 setup.py bdist_wheel', 'dist/*.whl'] + virtual_server))
 
 def test_command_lines():
-    r = check_command_line(".".split(), 0)
-    assert r['artifact_pattern'] is not None
-    r = check_command_line(". -- null -d".split(), 0)
-    assert r['artifact_pattern'] is not None
+    test_args, _, _ = check_command_line(".".split(), 0)
+    assert test_args.artifact_pattern is not None
+    test_args, _, _ = check_command_line(". -- null -d".split(), 0)
+    assert test_args.artifact_pattern is not None
     check_command_line("--dry-run . --verbosity 2 -- null -d".split(), 0)
-    assert r['artifact_pattern'] is not None
+    assert test_args.artifact_pattern is not None
     check_command_line(". null -d".split(), 2)
     check_command_line(". --verbosity 2 null -d".split(), 2)
     check_command_line("--dry-run . --verbosity 2 null -d".split(), 2)
     check_command_line("--dry-run . null -d".split(), 2)
 
-    r = check_command_line("auto".split(), 0)
-    assert r['artifact_pattern'] is not None
-    r = check_command_line("auto -- null -d".split(), 0)
-    assert r['artifact_pattern'] is not None
+    test_args, _, _ = check_command_line("auto".split(), 0)
+    assert test_args.artifact_pattern is not None
+    test_args, _, _ = check_command_line("auto -- null -d".split(), 0)
+    assert test_args.artifact_pattern is not None
     check_command_line("--dry-run auto --verbosity 2 -- null -d".split(), 0)
-    assert r['artifact_pattern'] is not None
+    assert test_args.artifact_pattern is not None
     check_command_line("auto null -d".split(), 2)
     check_command_line("auto --verbosity 2 null -d".split(), 2)
     check_command_line("--dry-run auto --verbosity 2 null -d".split(), 2)
     check_command_line("--dry-run auto null -d".split(), 2)
 
-    r = check_command_line("auto -- schroot unstable-amd64-sbuild".split(), 0)
-    assert r['virtual_server_args'] == ['schroot', 'unstable-amd64-sbuild']
-    r = check_command_line(". -- schroot unstable-amd64-sbuild".split(), 0)
-    assert r['virtual_server_args'] == ['schroot', 'unstable-amd64-sbuild']
-    r = check_command_line("auto . schroot unstable-amd64-sbuild".split(), 0)
-    assert r['virtual_server_args'] == ['schroot', 'unstable-amd64-sbuild']
+    _, testbed_args, _ = check_command_line("auto -- schroot unstable-amd64-sbuild".split(), 0)
+    assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
+    _, testbed_args, _ = check_command_line(". -- schroot unstable-amd64-sbuild".split(), 0)
+    assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
+    _, testbed_args, _ = check_command_line("auto . schroot unstable-amd64-sbuild".split(), 0)
+    assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
 
 # TODO: don't call it if we don't have debian/, e.g. for other distros
 def test_debian_build(virtual_server):
