@@ -220,85 +220,105 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
 class TestbedArgs(collections.namedtuple('_TestbedArgs',
     'virtual_server_args testbed_pre testbed_init host_distro')):
     @classmethod
-    def default(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian'):
+    def of(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian'):
         return cls(virtual_server_args, testbed_pre, testbed_init, host_distro)
 
 
 class TestArgs(collections.namedtuple('_Test',
     'build_command source_root artifact_pattern result_dir source_pattern no_clean_on_error diffoscope_args')):
     @classmethod
-    def default(cls, build_command, source_root, artifact_pattern, result_dir=None,
+    def of(cls, build_command, source_root, artifact_pattern, result_dir=None,
                 source_pattern=None, no_clean_on_error=False, diffoscope_args=[]):
+        artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
+        logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
+
+        if source_pattern:
+            source_pattern = shell_syn.sanitize_globs(source_pattern)
+            logging.debug("source_pattern sanitized to: %s", source_pattern)
         return cls(build_command, source_root, artifact_pattern, result_dir,
                    source_pattern, no_clean_on_error, diffoscope_args)
 
+    @coroutine
+    def corun_builds(self, testbed_args):
+        """A coroutine for running the builds.
 
-@coroutine
-def corun_builds(test_args, testbed_args):
-    """A coroutine for running the builds.
+        .>>> proc = self.corun_builds(testbed_args)
+        .>>> for name, var in variations:
+        .>>>     local_dist = proc.send((name, var))
+        .>>>     ...
+        """
+        build_command, source_root, artifact_pattern, result_dir, source_pattern, no_clean_on_error, diffoscope_args = self
+        virtual_server_args, testbed_pre, testbed_init, host_distro = testbed_args
 
-    .>>> proc = corun_builds(test_args, testbed_args)
-    .>>> for name, var in variations:
-    .>>>     local_dist = proc.send((name, var))
-    .>>>     ...
-    """
-    build_command, source_root, artifact_pattern, result_dir, source_pattern, no_clean_on_error, diffoscope_args = test_args
-    virtual_server_args, testbed_pre, testbed_init, host_distro = testbed_args
+        if not source_root:
+            raise ValueError("invalid source root: %s" % source_root)
+        if os.path.isfile(source_root):
+            source_root = os.path.normpath(os.path.dirname(source_root))
+        source_root = str(source_root)
 
-    if not source_root:
-        raise ValueError("invalid source root: %s" % source_root)
-    if os.path.isfile(source_root):
-        source_root = os.path.normpath(os.path.dirname(source_root))
-    source_root = str(source_root)
+        logging.debug("virtual_server_args: %r", virtual_server_args)
 
-    artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
-    logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
-    if source_pattern:
-        source_pattern = shell_syn.sanitize_globs(source_pattern)
-        logging.debug("source_pattern sanitized to: %s", source_pattern)
-    logging.debug("virtual_server_args: %r", virtual_server_args)
+        # TODO: if no_clean_on_error then this shouldn't be rm'd
+        with tempfile.TemporaryDirectory() as temp_dir:
+            if testbed_pre or source_pattern:
+                new_source_root = os.path.join(temp_dir, "testbed_pre")
+                subprocess.check_call(shell_copy_pattern(new_source_root, source_root, source_pattern or "."))
+                source_root = new_source_root
+            if testbed_pre:
+                subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
+            logging.debug("source_root: %s", source_root)
 
-    # TODO: if no_clean_on_error then this shouldn't be rm'd
-    with tempfile.TemporaryDirectory() as temp_dir:
-        if testbed_pre or source_pattern:
-            new_source_root = os.path.join(temp_dir, "testbed_pre")
-            subprocess.check_call(shell_copy_pattern(new_source_root, source_root, source_pattern or "."))
-            source_root = new_source_root
-        if testbed_pre:
-            subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
-        logging.debug("source_root: %s", source_root)
+            # TODO: an alternative strategy is to run the testbed many times, one for each build
+            # not sure if it's worth implementing at this stage, but perhaps in the future.
+            with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
+                               host_distro=host_distro) as testbed:
+                name_variation = yield
+                names_seen = set()
+                while name_variation:
+                    name, var = name_variation
+                    if name in names_seen:
+                        raise ValueError("already built '%s'" % name)
+                    names_seen.add(name)
 
-        # TODO: an alternative strategy is to run the testbed many times, one for each build
-        # not sure if it's worth implementing at this stage, but perhaps in the future.
-        with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
-                           host_distro=host_distro) as testbed:
-            name_variation = yield
-            names_seen = set()
-            while name_variation:
-                name, var = name_variation
-                if name in names_seen:
-                    raise ValueError("already built '%s'" % name)
-                names_seen.add(name)
+                    var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
+                    bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
-                var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
-                bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
+                    build = bctx.make_build_commands(
+                        'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
+                        'umask "$REPROTEST_UMASK"; unset REPROTEST_UMASK; ' +
+                        build_command, os.environ)
+                    logging.log(5, "build %s: %r", name, build)
+                    build = bctx.plan_variations(build)
+                    logging.log(5, "build %s: %r", name, build)
 
-                build = bctx.make_build_commands(
-                    'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
-                    'umask "$REPROTEST_UMASK"; unset REPROTEST_UMASK; ' +
-                    build_command, os.environ)
-                logging.log(5, "build %s: %r", name, build)
-                build = bctx.plan_variations(build)
-                logging.log(5, "build %s: %r", name, build)
+                    if testbed_init:
+                        testbed.check_exec2(["sh", "-ec", testbed_init])
 
-                if testbed_init:
-                    testbed.check_exec2(["sh", "-ec", testbed_init])
+                    bctx.copydown(testbed)
+                    bctx.run_build(testbed, build, artifact_pattern)
+                    bctx.copyup(testbed)
 
-                bctx.copydown(testbed)
-                bctx.run_build(testbed, build, artifact_pattern)
-                bctx.copyup(testbed)
+                    name_variation = yield bctx.local_dist
 
-                name_variation = yield bctx.local_dist
+    def check_reproducible(self, proc, dist_control, name, var):
+        dist_test = proc.send(("experiment-%s" % name, var))
+        # TODO: handle exit codes > 1 correctly, raise a CalledProcessError
+        retcode = run_diff(dist_control, dist_test, self.diffoscope_args, self.result_dir)
+        if retcode == 0:
+            return True
+        elif retcode == 1:
+            return False
+        else:
+            raise RuntimeError("diffoscope exited non-boolean %s, can't continue" % retcode)
+
+    def output_reproducible_hashes(self, dist_control):
+        print("=======================")
+        print("Reproduction successful")
+        print("=======================")
+        print("No differences in %s" % self.artifact_pattern, flush=True)
+        run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % self.artifact_pattern],
+            'SHA256SUMS', self.result_dir,
+            cwd=os.path.join(dist_control, VSRC_DIR))
 
 
 def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
@@ -306,7 +326,7 @@ def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.
     _, _, artifact_pattern, store_dir, _, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
-        proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
+        proc = test_args._replace(result_dir=result_dir).corun_builds(testbed_args)
 
         bnames = ["control"] + ["experiment-%s" % i for i in range(1, len(build_variations))]
         local_dists = [proc.send(nv) for nv in zip(bnames, build_variations)]
@@ -317,13 +337,7 @@ def check(test_args, testbed_args, build_variations=Variations.of(VariationSpec.
 
         retcode = max(retcodes.values())
         if retcode == 0:
-            print("=======================")
-            print("Reproduction successful")
-            print("=======================")
-            print("No differences in %s" % artifact_pattern, flush=True)
-            run_or_tee(['sh', '-ec', 'find %s -type f -exec sha256sum "{}" \;' % artifact_pattern],
-                'SHA256SUMS', store_dir,
-                cwd=os.path.join(local_dists[0], VSRC_DIR))
+            test_args.output_reproducible_hashes(local_dists[0])
             if any(bctx.spec.variations() != VariationSpec.all_names() for bctx in build_variations[1:]):
                 print("However, other factors may still make the build unreproducible; try re-running with --vary=+all.")
 
@@ -343,21 +357,11 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
     _, _, _, store_dir, _, _, diffoscope_args = test_args
     with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
         assert store_dir == result_dir or store_dir is None
-        proc = corun_builds(test_args._replace(result_dir=result_dir), testbed_args)
+        proc = test_args._replace(result_dir=result_dir).corun_builds(testbed_args)
 
         var_x0, var_x1 = build_variations
         dist_x0 = proc.send(("control", var_x0))
-
-        def is_reproducible(name, var):
-            dist_test = proc.send(("experiment-%s" % name, var))
-            # TODO: handle exit codes > 1 correctly, raise a CalledProcessError
-            retcode = run_diff(dist_x0, dist_test, diffoscope_args, store_dir)
-            if retcode == 0:
-                return True
-            elif retcode == 1:
-                return False
-            else:
-                raise RuntimeError("diffoscope exited non-boolean %s, can't continue" % retcode)
+        is_reproducible = lambda name, var: test_args.check_reproducible(proc, dist_x0, name, var)
 
         if not is_reproducible("0", var_x0):
             print("Not reproducible, even when fixing as much as reprotest knows how to. :(")
@@ -373,7 +377,7 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
         varnames = VariationSpec.all_names()
         random.shuffle(varnames)
         for v in varnames:
-            var_test = var_cur._replace(spec=var_cur.spec._replace(**{v: var_x1.spec[v]}))
+            var_test = var_cur.replace_spec(**{v: var_x1.spec[v]})
             if is_reproducible(v, var_test):
                 # vary it for the next test as well, it's OK to vary it
                 var_cur = var_test
@@ -698,9 +702,9 @@ def run(argv, dry_run=None):
         print("No <artifact> to test for differences provided. See --help for options.")
         sys.exit(2)
 
-    testbed_args = TestbedArgs(virtual_server_args, testbed_pre, testbed_init, host_distro)
-    test_args = TestArgs(build_command, source_root, artifact_pattern, store_dir,
-                         source_pattern, no_clean_on_error, diffoscope_args)
+    testbed_args = TestbedArgs.of(virtual_server_args, testbed_pre, testbed_init, host_distro)
+    test_args = TestArgs.of(build_command, source_root, artifact_pattern, store_dir,
+                            source_pattern, no_clean_on_error, diffoscope_args)
 
     check_args = (test_args, testbed_args, build_variations)
     if parsed_args.dry_run or dry_run:

@@ -455,6 +455,9 @@ class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
     def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0):
         return [cls(spec, verbosity) for spec in [zero] + list(specs)]
 
+    def replace_spec(self, *args, **kwargs):
+        return self._replace(spec=self.spec._replace(*args, **kwargs))
+
 
 if __name__ == "__main__":
     import sys

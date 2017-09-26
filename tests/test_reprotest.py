@@ -20,8 +20,8 @@ TEST_VARIATIONS = frozenset(VARIATIONS.keys()) - frozenset(REPROTEST_TEST_DONTVA
 
 def check_reproducibility(command, virtual_server, reproducible):
     result = reprotest.check(
-        reprotest.TestArgs.default(command, 'tests', 'artifact', diffoscope_args=[]),
-        reprotest.TestbedArgs.default(virtual_server),
+        reprotest.TestArgs.of(command, 'tests', 'artifact', diffoscope_args=[]),
+        reprotest.TestbedArgs.of(virtual_server),
         Variations.of(VariationSpec.default(TEST_VARIATIONS)))
     assert result == reproducible
 
