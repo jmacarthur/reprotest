@@ -114,7 +114,7 @@ so that it uses our `experimental toolchain
     $ reprotest --store-dir=artifacts \
         --auto-preset-expr '_.prepend.testbed_init("apt-get install -y wget 2>/dev/null; \
             echo deb http://reproducible.alioth.debian.org/debian/ ./ >> /etc/apt/sources.list; \
-            wget -q -O- https://reproducible.alioth.debian.org/reproducible.asc | apt-key add -; \
+            wget -q -O- https://reproducible.alioth.debian.org/reproducible.asc | apt-key add - 2>/dev/null; \
             apt-get update; apt-get upgrade -y 2>/dev/null; ")' \
         ./bash_4.4-4.0~reproducible1.dsc \
         -- \
@@ -304,3 +304,18 @@ If you see a difference that you really think should not be there, try passing
 ``--variations=-time`` to reprotest, and/or check our results on
 https://tests.reproducible-builds.org/ which use a different (more reliable)
 mechanism to vary the system time.
+
+
+Known bugs
+==========
+
+If the first argument is a file but it doesn't exist, then the heuristic will
+fail and reprotest might give a confusing error message about "No <artifact>
+provided".
+
+If the first argument is a file then reprotest will copy its whole directory.
+Sometimes this is unsuitable, e.g. when it contains 3GB of other stuff.
+Also if this copying fails (e.g. because irrelevant files are not copyable due
+to permissions) then reprotest might give a confusing error message about that.
+
+These will be fixed soon.
