@@ -6,12 +6,7 @@ import os
 import shlex
 import subprocess
 
-
-class AttributeFunctor(collections.namedtuple('_AttributeFunctor', 'x f')):
-    def __getattr__(self, name):
-        return lambda *args: self.x._replace(**{
-            name: self.f(getattr(self.x, name), *args)
-        })
+from reprotest.utils import AttributeFunctor
 
 
 class ReprotestPreset(collections.namedtuple('_ReprotestPreset',

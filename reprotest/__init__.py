@@ -8,7 +8,6 @@ import contextlib
 import logging
 import os
 import random
-import re
 import shlex
 import shutil
 import subprocess
@@ -280,7 +279,7 @@ class TestArgs(collections.namedtuple('_Test',
                         raise ValueError("already built '%s'" % name)
                     names_seen.add(name)
 
-                    var = var._replace(spec=var.spec.apply_dynamic_defaults(source_root))
+                    var = var.replace.spec.apply_dynamic_defaults(source_root)
                     bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
                     build = bctx.make_build_commands(
@@ -377,7 +376,7 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
         varnames = VariationSpec.all_names()
         random.shuffle(varnames)
         for v in varnames:
-            var_test = var_cur.replace_spec(**{v: var_x1.spec[v]})
+            var_test = var_cur.replace.spec._replace(**{v: var_x1.spec[v]})
             if is_reproducible(v, var_test):
                 # vary it for the next test as well, it's OK to vary it
                 var_cur = var_test

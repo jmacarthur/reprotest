@@ -15,6 +15,7 @@ import types
 
 from reprotest import _shell_ast
 from reprotest import mdiffconf
+from reprotest.utils import AttributeReplacer
 
 
 def tool_required(*tools):
@@ -455,15 +456,16 @@ class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
     def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0):
         return [cls(spec, verbosity) for spec in [zero] + list(specs)]
 
-    def replace_spec(self, *args, **kwargs):
-        return self._replace(spec=self.spec._replace(*args, **kwargs))
+    @property
+    def replace(self):
+        return AttributeReplacer(self, [])
 
 
 if __name__ == "__main__":
     import sys
     d = VariationSpec()
     for s in sys.argv[1:]:
-        d = d.append(s)
+        d = d.extend([s])
         print(s)
         print(">>>", d)
     print("result", d.apply_dynamic_defaults("."))
