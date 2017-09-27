@@ -368,6 +368,7 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
 
         if is_reproducible("1", var_x1):
             print("Reproducible, even when varying as much as reprotest knows how to! :)")
+            test_args.output_reproducible_hashes(dist_x0)
             return True
 
         var_cur = var_x0
