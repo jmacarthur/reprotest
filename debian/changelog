@@ -1,13 +1,19 @@
 reprotest (0.7.1) UNRELEASED; urgency=medium
 
-  * Add a --auto-build option to try to determine which specific variations
-    cause unreproducibility.
+  * New features:
+    + Add a --auto-build option to try to determine which specific variations
+      cause unreproducibility.
+    + Add a --source-pattern option to restrict copying of source_root, and set
+      this automatically in our presets.
+  * Usability improvements:
+    + Improve error messages in some common scenarios.
+      - giving a source_root or build_command that doesn't exist
+      - using reprotest with default settings after not installing Recommends
+    + Output hashes after a successful --auto-build.
+    + Print a warning message if we reproduced successfully but didn't vary
+      everything.
   * Fix varying both umask and user_group at the same time.
-  * Improve error messages in some common scenarios:
-    - giving a source_root or build_command that doesn't exist
-    - using reprotest with default settings after not installing Recommends
-  * Add a --source-pattern option to restrict copying of source_root, and set
-    this automatically in our presets.
+  * Have dpkg-source extract to different build dir iff varying the build-path.
   * Pass --exclude-directory-metadata to diffoscope(1) by default as this is
     the majority use-case. Document the other cases in README and the man page.
 
