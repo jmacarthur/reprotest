@@ -171,7 +171,7 @@ fi
 # TODO: the below ideally should *read the current value*, and pick
 # something that's different for the experiment.
 
-# TODO: relies on a pbuilder-specific command to parallelize
+# FIXME: use taskset(1) and/or dpkg-buildpackage -J1
 # def cpu(script, env, tree):
 #     return script, env, tree
 
@@ -180,7 +180,9 @@ def environment(ctx, build, vary):
         return build
     return build.add_env('CAPTURE_ENVIRONMENT', 'i_capture_the_environment')
 
-# TODO: this requires superuser privileges.
+# FIXME: this requires superuser privileges.
+# Probably need to couple with "namespace" UTS unshare when not running in a
+# virtual_server, see below for details
 # def domain_host(ctx, script, env, tree):
 #     return script, env, tree
 
@@ -254,8 +256,9 @@ def locales(ctx, build, vary):
         loc = random.choice(['fr_CH.UTF-8', 'es_ES', 'ru_RU.CP1251', 'kk_KZ.RK1048', 'zh_CN'])
         return build.add_env('LANG', loc).add_env('LC_ALL', loc).add_env('LANGUAGE', '%s:fr' % loc)
 
-# TODO: Linux-specific.  unshare --uts requires superuser privileges.
-# How is this related to host/domainname?
+# FIXME: Linux-specific.  unshare --uts requires superuser privileges.
+# See misc.git/prebuilder/pbuilderhooks/D01_hostname, UTS unshare helps to
+# avoid hostname/domainname changes affect the main system.
 # def namespace(ctx, script, env, tree):
 #     # command1 = ['unshare', '--uts'] + command1
 #     # command2 = ['unshare', '--uts'] + command2
@@ -270,6 +273,7 @@ def exec_path(ctx, build, vary):
 # affects all user shells, which would be bad.
 # # def shell(ctx, script, env, tree):
 #     return script, env, tree
+# TODO: also test differences with /bin/sh as bash vs dash
 
 def timezone(ctx, build, vary):
     # These time zones are theoretically in the POSIX time zone format
