@@ -1,4 +1,4 @@
-reprotest (0.7.1) UNRELEASED; urgency=medium
+reprotest (0.7.1) unstable; urgency=medium
 
   * New features:
     + Add a --auto-build option to try to determine which specific variations
@@ -17,7 +17,7 @@ reprotest (0.7.1) UNRELEASED; urgency=medium
   * Pass --exclude-directory-metadata to diffoscope(1) by default as this is
     the majority use-case. Document the other cases in README and the man page.
 
- -- Ximin Luo <infinity0@debian.org>  Fri, 22 Sep 2017 17:57:31 +0200
+ -- Ximin Luo <infinity0@debian.org>  Tue, 03 Oct 2017 15:56:25 +0200
 
 reprotest (0.7) unstable; urgency=medium
 
