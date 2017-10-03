@@ -574,7 +574,7 @@ def command_line(parser, argv):
     args.virtual_server_args = args.virtual_server_args or ["null"]
 
     if args.help:
-        if args.help:
+        if args.help is True:
             parser.print_help()
             sys.exit(0)
         else:
