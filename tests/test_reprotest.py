@@ -98,8 +98,6 @@ def test_command_lines():
     assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
     _, testbed_args, _ = check_command_line(". -- schroot unstable-amd64-sbuild".split(), 0)
     assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
-    _, testbed_args, _ = check_command_line("auto . schroot unstable-amd64-sbuild".split(), 0)
-    assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
 
 # TODO: don't call it if we don't have debian/, e.g. for other distros
 def test_debian_build(virtual_server):

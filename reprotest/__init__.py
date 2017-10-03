@@ -683,7 +683,7 @@ def run(argv, dry_run=None):
     build_variations = Variations.of(*specs, verbosity=verbosity)
 
     # Warn about missing programs
-    if virtual_server_args[0] == "null":
+    if virtual_server_args[0] == "null" and not dry_run:
         missing = [(var, tool_missing(action))
             for spec in specs
             for var, vary, action in spec.actions()
