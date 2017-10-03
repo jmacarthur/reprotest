@@ -79,9 +79,10 @@ directory" preset would look like, if we ran it using the full CLI::
     $ reprotest \
         --testbed-init 'apt-get -y --no-install-recommends install \
                         disorderfs faketime locales-all sudo util-linux; \
-                        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229' \
-        --build-command 'PATH=/sbin:/usr/sbin:$PATH apt-get -y --no-install-recommends build-dep ./; \
-                         dpkg-buildpackage -uc -us -b' \
+                        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229; \
+                        test -f /etc/mtab || ln -s ../proc/self/mounts /etc/mtab' \
+        --testbed-build-pre 'apt-get -y --no-install-recommends build-dep ./' \
+        --build-command 'dpkg-buildpackage --no-sign -b' \
         . \
         '../*.deb' \
         -- \
@@ -92,9 +93,9 @@ reprotest needs in order to make the variations in the first place. This
 should be the same regardless of what package is being built, but might
 differ depending on what virtual\_server is being used.
 
-Next, we have ``--build-command`` (or ``-c``). For our Debian directory, we
-install build-dependencies using ``apt-get``, then we run the actual build
-command itself using ``dpkg-buildpackage(1)``.
+Next, we have ``--testbed-build-pre``, then ``--build-command`` (or ``-c``).
+For our Debian directory, we install build-dependencies using ``apt-get``,
+then we run the actual build command itself using ``dpkg-buildpackage(1)``.
 
 Then, we have the ``source_root`` and the ``artifact_pattern``. For
 reproducibility, we're only interested in the binary packages.
@@ -103,8 +104,8 @@ Finally, we specify that this is to take place in the "schroot"
 virtual\_server with arguments "unstable-amd64-sbuild".
 
 Of course, all of this is a burden to remember, if you must run the same
-thing many times. So that is why adding new presets for new files would
-be good.
+thing many times. So that is why adding new presets for new package types
+would be good.
 
 Here is a more complex example. It tells reprotest to store the build products
 into ``./artifacts`` to analyse later; and also tweaks the "Debian dsc" preset
@@ -120,7 +121,9 @@ so that it uses our `experimental toolchain
         -- \
         schroot unstable-amd64-sbuild
 
-(Yes, this could be a lot nicer to achieve; we're working on it.)
+Alternatively, you can clone your unstable-amd64-sbuild chroot, add our repo to
+the cloned chroot, then use this chroot in place of "unstable-amd64-sbuild".
+That would allow you to omit the long ``--auto-preset-expr`` flag above.
 
 
 Config File

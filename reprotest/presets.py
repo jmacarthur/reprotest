@@ -58,7 +58,7 @@ class ReprotestPreset(collections.namedtuple('_ReprotestPreset',
 
     @property
     def re_replace(self):
-        """Do a substring-replace on the given attribute."""
+        """Do a regex-replace on the given attribute."""
         return AttributeFunctor(self, lambda s, pattern, repl, **kwargs: re.sub(pattern, repl, s, **kwargs))
 
 
@@ -84,9 +84,10 @@ def preset_deb_schroot(fn, preset):
     ).set.testbed_init(
         # need to symlink /etc/mtab to work around a fusermount(1) deficiency
         'apt-get -y --no-install-recommends install disorderfs faketime locales-all sudo util-linux; \
-        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229; test -f /etc/mtab || ln -s ../proc/self/mounts /etc/mtab'
+        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229; \
+        test -f /etc/mtab || ln -s ../proc/self/mounts /etc/mtab'
     ).set.testbed_build_pre(
-        'PATH=/sbin:/usr/sbin:$PATH apt-get -y --no-install-recommends build-dep ./"%s"' % fn)
+        'apt-get -y --no-install-recommends build-dep ./"%s"' % fn)
 
 def parse_dsc_aux(path):
     dscfiles = subprocess.check_output(["egrep",
