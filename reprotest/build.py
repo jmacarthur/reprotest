@@ -273,7 +273,7 @@ def exec_path(ctx, build, vary):
 # affects all user shells, which would be bad.
 # # def shell(ctx, script, env, tree):
 #     return script, env, tree
-# TODO: also test differences with /bin/sh as bash vs dash
+# FIXME: also test differences with /bin/sh as bash vs dash
 
 def timezone(ctx, build, vary):
     # These time zones are theoretically in the POSIX time zone format
@@ -294,7 +294,7 @@ def faketime(ctx, build, vary):
     # FIXME: better way of choosing which faketime to use
     if lastmt.startswith("@") and int(lastmt[1:]) < now - 32253180:
         # if lastmt is far in the past, use that, it's a bit safer
-        faket = '@%s' % lastmt
+        faket = lastmt
     else:
         # otherwise use a date far in the future
         faket = '+373days+7hours+13minutes'
@@ -441,6 +441,9 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
     def extend(self, actions):
         one = self.default()
         return mdiffconf.parse_all(self, actions, one, one, self.aliases, sep=",")
+
+    def __contains__(self, k):
+        return k in self.__dict__
 
     def __getitem__(self, k):
         return self.__dict__[k]

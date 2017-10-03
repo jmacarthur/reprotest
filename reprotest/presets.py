@@ -3,6 +3,7 @@
 
 import collections
 import os
+import re
 import shlex
 import subprocess
 
@@ -10,7 +11,7 @@ from reprotest.utils import AttributeFunctor
 
 
 class ReprotestPreset(collections.namedtuple('_ReprotestPreset',
-    'build_command artifact_pattern testbed_pre testbed_init source_pattern diffoscope_args')):
+    'build_command artifact_pattern testbed_pre testbed_init testbed_build_pre source_pattern diffoscope_args')):
     """Named-tuple representing a reprotest command preset.
 
     You can manipulate it like this:
@@ -39,18 +40,26 @@ class ReprotestPreset(collections.namedtuple('_ReprotestPreset',
     def set(self):
         """Set the given attribute to the given value."""
         return AttributeFunctor(self, lambda x, y: y)
+
     @property
     def str_replace(self):
         """Do a substring-replace on the given attribute."""
         return AttributeFunctor(self, str.replace)
+
     @property
     def prepend(self):
         """Prepend the given value to the given attribute."""
         return AttributeFunctor(self, lambda a, b: b + a)
+
     @property
     def append(self):
         """Apppend the given value to the given attribute."""
         return AttributeFunctor(self, lambda a, b: a + b)
+
+    @property
+    def re_replace(self):
+        """Do a substring-replace on the given attribute."""
+        return AttributeFunctor(self, lambda s, pattern, repl, **kwargs: re.sub(pattern, repl, s, **kwargs))
 
 
 PRESET_DEB_DIR = ReprotestPreset(
@@ -58,17 +67,26 @@ PRESET_DEB_DIR = ReprotestPreset(
     artifact_pattern = '../*.deb',
     testbed_pre = None,
     testbed_init = None,
+    testbed_build_pre = None,
     source_pattern = None,
     diffoscope_args = [],
 )
 
-def preset_deb_schroot(preset):
-    return preset.str_replace.build_command("dpkg-buildpackage",
-        'PATH=/sbin:/usr/sbin:$PATH apt-get -y --no-install-recommends build-dep ./; dpkg-buildpackage'
+def preset_deb_schroot(fn, preset):
+    return preset.re_replace.build_command("(.*)", lambda m: r"""
+        if [ "$(id -u)" = 0 ]; then
+            sudo -E -u "$LOGNAME" sh -ec {0};
+        else
+            sh -ec {0};
+        fi
+        """.format(shlex.quote(m.group(1)))
+        # schroot starts us off as root, we drop privs here to do the actual build
     ).set.testbed_init(
+        # need to symlink /etc/mtab to work around a fusermount(1) deficiency
         'apt-get -y --no-install-recommends install disorderfs faketime locales-all sudo util-linux; \
-        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229'
-    )
+        test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229; test -f /etc/mtab || ln -s ../proc/self/mounts /etc/mtab'
+    ).set.testbed_build_pre(
+        'PATH=/sbin:/usr/sbin:$PATH apt-get -y --no-install-recommends build-dep ./"%s"' % fn)
 
 def parse_dsc_aux(path):
     dscfiles = subprocess.check_output(["egrep",
@@ -92,12 +110,12 @@ def get_presets(buildfile, virtual_server):
             if virtual_server == "null":
                 return PRESET_DEB_DIR
             else:
-                return preset_deb_schroot(PRESET_DEB_DIR)
+                return preset_deb_schroot(".", PRESET_DEB_DIR)
     elif os.path.isfile(buildfile):
         if parts[1] == '.dsc':
             if virtual_server == "null":
                 return preset_deb_dsc(fn, parse_dsc_aux(buildfile))
             else:
-                return preset_deb_schroot(preset_deb_dsc(fn, parse_dsc_aux(buildfile)))
+                return preset_deb_schroot(fn, preset_deb_dsc(fn, parse_dsc_aux(buildfile)))
     raise ValueError('unrecognised file type: "%s"; try giving '
                      'an appropriate --build-command' % buildfile)

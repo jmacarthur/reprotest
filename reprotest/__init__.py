@@ -166,15 +166,16 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logging.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
         testbed.command('copyup', (self.testbed_dist, os.path.join(self.local_dist, '')))
 
-    def run_build(self, testbed, build, artifact_pattern):
+    def run_build(self, testbed, build, artifact_pattern, testbed_build_pre):
         logging.info("starting build with source directory: %s, artifact pattern: %s",
             self.testbed_src, artifact_pattern)
-        # remove any existing artifact, in case the build script doesn't overwrite
-        # it e.g. like how make(1) sometimes works.
+        # we remove existing artifacts in case the build doesn't overwrite it
+        # e.g. like how make(1) sometimes works
         testbed.check_exec2(
-            ['sh', '-ec', 'cd "%s" && rm -rf %s' %
-            (self.testbed_src, artifact_pattern)])
-        # this dance is necessary because the cwd can't be cd'd into during the setup phase under some variations like user_group
+            ['sh', '-ec', 'cd "%s" && rm -rf %s && %s' %
+            (self.testbed_src, artifact_pattern, testbed_build_pre or "true")])
+        # this dance is necessary because the cwd can't be cd'd into during the
+        # setup phase under some variations like user_group
         _ = build
         _ = _.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % build.tree)
         _ = _.append_setup_exec_raw('export', 'REPROTEST_UMASK=$(umask)')
@@ -217,10 +218,10 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
 
 
 class TestbedArgs(collections.namedtuple('_TestbedArgs',
-    'virtual_server_args testbed_pre testbed_init host_distro')):
+    'virtual_server_args testbed_pre testbed_init testbed_build_pre host_distro')):
     @classmethod
-    def of(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, host_distro='debian'):
-        return cls(virtual_server_args, testbed_pre, testbed_init, host_distro)
+    def of(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, testbed_build_pre=None, host_distro='debian'):
+        return cls(virtual_server_args, testbed_pre, testbed_init, testbed_build_pre, host_distro)
 
 
 class TestArgs(collections.namedtuple('_Test',
@@ -247,7 +248,7 @@ class TestArgs(collections.namedtuple('_Test',
         .>>>     ...
         """
         build_command, source_root, artifact_pattern, result_dir, source_pattern, no_clean_on_error, diffoscope_args = self
-        virtual_server_args, testbed_pre, testbed_init, host_distro = testbed_args
+        virtual_server_args, testbed_pre, testbed_init, testbed_build_pre, host_distro = testbed_args
 
         if not source_root:
             raise ValueError("invalid source root: %s" % source_root)
@@ -271,6 +272,9 @@ class TestArgs(collections.namedtuple('_Test',
             # not sure if it's worth implementing at this stage, but perhaps in the future.
             with start_testbed(virtual_server_args, temp_dir, no_clean_on_error,
                                host_distro=host_distro) as testbed:
+                if testbed_init:
+                    testbed.check_exec2(["sh", "-ec", testbed_init])
+
                 name_variation = yield
                 names_seen = set()
                 while name_variation:
@@ -290,11 +294,8 @@ class TestArgs(collections.namedtuple('_Test',
                     build = bctx.plan_variations(build)
                     logging.log(5, "build %s: %r", name, build)
 
-                    if testbed_init:
-                        testbed.check_exec2(["sh", "-ec", testbed_init])
-
                     bctx.copydown(testbed)
-                    bctx.run_build(testbed, build, artifact_pattern)
+                    bctx.run_build(testbed, build, artifact_pattern, testbed_build_pre)
                     bctx.copyup(testbed)
 
                     name_variation = yield bctx.local_dist
@@ -374,7 +375,7 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
         var_cur = var_x0
         unreproducibles = []
 
-        varnames = VariationSpec.all_names()
+        varnames = [v for v in VariationSpec.all_names() if v in var_x1.spec]
         random.shuffle(varnames)
         for v in varnames:
             var_test = var_cur.replace.spec._replace(**{v: var_x1.spec[v]})
@@ -469,20 +470,20 @@ def cli_parser():
         help='Like --verbosity, but given multiple times without arguments.')
     group1.add_argument('--host-distro', default='debian',
         help='The distribution that will run the tests (Default: %(default)s)')
-    group1.add_argument('-s', '--source-root', default=None,
+    group1.add_argument('-s', '--source-root', default=None, metavar='PATH',
         help='Root of the source tree, that is copied to the virtual server '
         'and made available during the build. If a file is given here, then '
         'its parent directory is used instead. Default: "." (current working '
         'directory).')
-    group1.add_argument('--source-pattern', default=None,
+    group1.add_argument('--source-pattern', default=None, metavar='PATTERNS',
         help='Shell glob pattern to restrict the files in <source_root> that '
         'are made available during the build. Default: empty, i.e. copy the '
         'whole <source_root> directory with no restrictions.')
-    group1.add_argument('-c', '--build-command', default=None,
+    group1.add_argument('-c', '--build-command', default=None, metavar='COMMANDS',
         help='Build command to execute. If this is "auto" then reprotest will '
         'guess how to build the given source_root, in which case various other '
         'options may be automatically set-if-unset. Default: auto'),
-    group1.add_argument('--store-dir', default=None,
+    group1.add_argument('--store-dir', default=None, metavar='DIRECTORY',
         help='Save the artifacts in this directory, which must be empty or '
         'non-existent. Otherwise, the artifacts will be deleted and you only '
         'see their hashes (if reproducible) or the diff output (if not).')
@@ -511,7 +512,7 @@ def cli_parser():
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
     group2 = parser.add_argument_group('diff options')
-    group2.add_argument('--diffoscope-arg', action='append',
+    group2.add_argument('--diffoscope-arg', action='append', metavar='ARG',
         help='Give extra arguments to diffoscope when running it. Default: '
         '%(default)s', default=['--exclude-directory-metadata'])
     group2.add_argument('--no-diffoscope', action='store_true', default=False,
@@ -527,8 +528,11 @@ def cli_parser():
         'compute information needed by the build, where the computation needs '
         'packages you don\'t want installed in the testbed itself.')
     group3.add_argument('--testbed-init', default=None, metavar='COMMANDS',
-        help='Shell commands to run after starting the test bed, but before '
-        'applying variations. Used to e.g. install disorderfs in a chroot.')
+        help='Shell commands to run after starting the test bed, before '
+        'running anything else. Used to e.g. install disorderfs in a chroot.')
+    group3.add_argument('--testbed-build-pre', default=None, metavar='COMMANDS',
+        help='Shell commands to run before each build, even before applying '
+        'variations for that build. Used to e.g. install build-dependencies.')
     group3.add_argument('--auto-preset-expr', default="_", metavar='PYTHON_EXPRESSION',
         help='This may be used to transform the presets returned by the '
         'auto-detection feature. The value should be a python expression '
@@ -641,6 +645,7 @@ def run(argv, dry_run=None):
     artifact_pattern = parsed_args.artifact_pattern
     testbed_pre = parsed_args.testbed_pre
     testbed_init = parsed_args.testbed_init
+    testbed_build_pre = parsed_args.testbed_build_pre
     diffoscope_args = parsed_args.diffoscope_arg
     source_pattern = parsed_args.source_pattern
     if verbosity >= 2:
@@ -656,6 +661,7 @@ def run(argv, dry_run=None):
         artifact_pattern = artifact_pattern or values.artifact_pattern
         testbed_pre = testbed_pre or values.testbed_pre
         testbed_init = testbed_init or values.testbed_init
+        testbed_build_pre = testbed_build_pre or values.testbed_build_pre
         if values.diffoscope_args is not None:
             diffoscope_args = values.diffoscope_args + diffoscope_args
         if values.source_pattern is not None:
@@ -702,7 +708,7 @@ def run(argv, dry_run=None):
         print("No <artifact> to test for differences provided. See --help for options.")
         sys.exit(2)
 
-    testbed_args = TestbedArgs.of(virtual_server_args, testbed_pre, testbed_init, host_distro)
+    testbed_args = TestbedArgs.of(virtual_server_args, testbed_pre, testbed_init, testbed_build_pre, host_distro)
     test_args = TestArgs.of(build_command, source_root, artifact_pattern, store_dir,
                             source_pattern, no_clean_on_error, diffoscope_args)
 
