@@ -21,7 +21,7 @@ import pkg_resources
 from reprotest.lib import adtlog
 from reprotest.lib import adt_testbed
 from reprotest.build import Build, VariationSpec, Variations, tool_missing
-from reprotest import presets, shell_syn
+from reprotest import environ, presets, shell_syn
 
 
 VIRT_PREFIX = "autopkgtest-virt-"
@@ -181,7 +181,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logging.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
         testbed.command('copyup', (self.testbed_dist, os.path.join(self.local_dist, '')))
 
-    def run_build(self, testbed, build, artifact_pattern, testbed_build_pre, no_clean_on_error):
+    def run_build(self, testbed, build, old_env, artifact_pattern, testbed_build_pre, no_clean_on_error):
         logging.info("starting build with source directory: %s, artifact pattern: %s",
             self.testbed_src, artifact_pattern)
         # we remove existing artifacts in case the build doesn't overwrite it
@@ -192,10 +192,12 @@ class BuildContext(collections.namedtuple('_BuildContext',
         # this dance is necessary because the cwd can't be cd'd into during the
         # setup phase under some variations like user_group
         new_script = build.to_script(no_clean_on_error)
-        logging.info("executing build...")
+        logging.info("executing build in %s ...", build.tree)
+        logging.debug("#### REPROTEST BUILD ENVVARS ##################################################")
+        logging.debug("\n".join(environ.env_diff(old_env, build.env)))
         logging.debug(new_script)
         testbed.check_exec2(['sh', '-ec', new_script],
-            xenv=['%s=%s' % (k, v) for k, v in build.env.items()],
+            xenv=['-i'] + ['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
         dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
         testbed.check_exec2(shell_copy_pattern(dist_base, self.testbed_src, artifact_pattern))
@@ -301,7 +303,7 @@ class TestArgs(collections.namedtuple('_Test',
 
                     build = bctx.make_build_commands(build_command, os.environ)
                     bctx.copydown(testbed)
-                    bctx.run_build(testbed, build, artifact_pattern, testbed_build_pre, no_clean_on_error)
+                    bctx.run_build(testbed, build, os.environ, artifact_pattern, testbed_build_pre, no_clean_on_error)
                     bctx.copyup(testbed)
 
                     name_variation = yield bctx.local_dist
@@ -396,6 +398,49 @@ def check_auto(test_args, testbed_args, build_variations=Variations.of(Variation
         print(" ".join(unreproducibles))
         print("The build is probably reproducible when varying other things.")
         return False
+
+
+def check_env(test_args, testbed_args, build_variations=Variations.of(VariationSpec.default())):
+    # default argument [] is safe here because we never mutate it.
+    _, _, artifact_pattern, store_dir, _, _, diffoscope_args = test_args
+    with empty_or_temp_dir(store_dir, "store_dir") as result_dir:
+        assert store_dir == result_dir or store_dir is None
+        proc = test_args._replace(result_dir=result_dir).corun_builds(testbed_args)
+
+        var_x0, var_x1 = build_variations
+        dist_x0 = proc.send(("control", var_x0))
+        is_reproducible = lambda name, var: test_args.check_reproducible(proc, dist_x0, name, var)
+
+        orig_variations = var_x1.spec.variations()
+        only_varying_env = (len(orig_variations) == 0 or
+            len(orig_variations) == 1 and "environment" in orig_variations)
+
+        blacklist, blacklist_names, non_whitelist, non_whitelist_names = environ.generate_dummy_environ()
+
+        # Test blacklist
+        var_x1 = var_x1.replace.spec.extend("environment")
+        var_x1 = var_x1.replace.spec.environment.extend_variables(*blacklist)
+        if not is_reproducible("blacklist", var_x1):
+            print("Unreproducible even when varying blacklisted envvars: ", ", ".join(sorted(blacklist_names)))
+            if not only_varying_env:
+                print("This may or may not be caused by other factors; try re-running this again with --vary=-all")
+            else:
+                print("You are highly recommended to make your program reproducible when varying these.")
+            return False
+
+        # Test non-whitelist
+        var_x2 = var_x1.replace.spec.environment.extend_variables(*non_whitelist)
+        if not is_reproducible("non-whitelist", var_x2):
+            print("Unreproducible when varying unknown envvars: ", ", ".join(sorted(non_whitelist_names)))
+            print("Please file a bug to reprotest to add these to the whitelist or blacklist, to be decided.")
+            print("If blacklist, then you should also make your program reproducible when varying them.")
+            return False
+
+        print("Reproducible, even when varying known blacklisted and unknown non-whitelisted envvars! :)")
+        test_args.output_reproducible_hashes(dist_x0)
+        if orig_variations != VariationSpec.all_names():
+            print("However, other factors may still make the build unreproducible; try re-running with --vary=+all.")
+        return True
 
 
 def config_to_args(parser, filename):
@@ -514,6 +559,12 @@ def cli_parser():
         'variations cause unreproducibility, potentially up to and including '
         'the ones specified by --variations and --vary. Conflicts with '
         '--extra-build.')
+    group1_0.add_argument('--env-build', default=False, action='store_true',
+        help='Automatically perform builds to try to determine which specific '
+        'environment variables cause unreproducibility, based on a hard-coded '
+        'whitelist and blacklist. You probably want to set --vary=-all as well '
+        'when setting this flag; see the man page for details. Conflicts with '
+        '--extra-build and --auto-build.')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
@@ -684,6 +735,8 @@ def run(argv, dry_run=None):
     specs = [spec]
     if parsed_args.auto_build:
         check_func = check_auto
+    elif parsed_args.env_build:
+        check_func = check_env
     else:
         for extra_build in parsed_args.extra_build:
             specs.append(spec.extend(extra_build))

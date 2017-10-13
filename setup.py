@@ -6,11 +6,11 @@
 from setuptools import setup, find_packages
 
 setup(name='reprotest',
-      version='0.7.2',
+      version='0.7.3',
       description='Build packages and check them for reproducibility.',
       long_description=open('README.rst', encoding='utf-8').read(),
-      author='Ceridwen',
-      author_email='ceridwenv@gmail.com',
+      author='Ximin Luo, Ceridwen',
+      author_email='infinity0@debian.org, ceridwenv@gmail.com',
       license='GPL-3+',
       url='https://anonscm.debian.org/cgit/reproducible/reprotest.git/',
       packages=find_packages(),
@@ -21,6 +21,7 @@ setup(name='reprotest',
           },
       install_requires=[
           'diffoscope',
+          'rstr',
           ],
       classifiers=[
           'Development Status :: 3 - Alpha',

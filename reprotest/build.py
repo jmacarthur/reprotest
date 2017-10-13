@@ -13,6 +13,7 @@ import random
 import time
 import types
 
+from reprotest import environ
 from reprotest import mdiffconf
 from reprotest import shell_syn
 from reprotest.utils import AttributeReplacer
@@ -82,6 +83,15 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
         new_mapping[key] = value
         return self._replace(env=types.MappingProxyType(new_mapping))
 
+    def modify_env(self, add, rem):
+        '''Helper function for adding a key-value pair to an immutable mapping.'''
+        new_mapping = self.env.copy()
+        for k, v in add:
+            new_mapping[k] = v
+        for k in rem:
+            del new_mapping[k]
+        return self._replace(env=types.MappingProxyType(new_mapping))
+
     def prepend_to_build_command(self, *prefix):
         '''Prepend a wrapper command onto the build_command.'''
         new_command = shell_syn.Command(
@@ -149,7 +159,7 @@ else
     exit $__x
 fi
 """
-            return """
+            return """\
 #### BEGIN REPROTEST BUILD SCRIPT ##############################################
 run_build() {{
     {0}
@@ -179,7 +189,13 @@ cleanup() {{
 def environment(ctx, build, vary):
     if not vary:
         return build
-    return build.add_env('CAPTURE_ENVIRONMENT', 'i_capture_the_environment')
+    added, removed = [], []
+    for k, v in environ.parse_environ_templates(ctx.spec.environment.variables):
+        if v is None:
+            removed += [k]
+        else:
+            added += [(k, v)]
+    return build.modify_env(added, removed)
 
 # FIXME: this requires superuser privileges.
 # Probably need to couple with "namespace" UTS unshare when not running in a
@@ -338,7 +354,8 @@ def user_group(ctx, build, vary):
         sudo_command = ('sudo', '-E', '-u', user)
     binpath = os.path.join(dirname(build.tree), 'bin')
 
-    _ = build.prepend_to_build_command(*sudo_command)
+    _ = build.prepend_to_build_command(*sudo_command,
+        *["env", "-u", "SUDO_COMMAND", "-u", "SUDO_GID", "-u", "SUDO_UID", "-u", "SUDO_USER"])
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
@@ -405,6 +422,15 @@ class TimeVariation(collections.namedtuple('_TimeVariation', 'faketimes auto_fak
         return self.empty()._replace(faketimes=self.faketimes + new_faketimes)
 
 
+class EnvironmentVariation(collections.namedtuple("_EnvironmentVariation", "variables")):
+    @classmethod
+    def default(cls):
+        return cls(mdiffconf.strlist_set(";", ["REPROTEST_CAPTURE_ENVIRONMENT"]))
+
+    def extend_variables(self, *ks):
+        return self._replace(variables=self.variables + list(ks))
+
+
 class UserGroupVariation(collections.namedtuple('_UserGroupVariation', 'available')):
     @classmethod
     def default(cls):
@@ -415,6 +441,7 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
     @classmethod
     def default(cls, variations=VARIATIONS):
         default_overrides = {
+            "environment": EnvironmentVariation.default(),
             "user_group": UserGroupVariation.default(),
             "time": TimeVariation.default(),
         }

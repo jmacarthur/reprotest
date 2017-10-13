@@ -219,6 +219,20 @@ of names is given in the --help text for --variations.
 Most variations do not have parameters, and for them only the + and - operators
 are relevant. The variations that accept parameters are:
 
+environment.variables
+    A semicolon-separated ordered set, specifying environment variables that
+    reprotest should try to vary. Default is "REPROTEST_CAPTURE_ENVIRONMENT".
+    Supports regex-based syntax e.g.
+
+    - PID=\d{1,6}
+    - HOME=(/\w{3,12}){1,4}
+    - (GO|PYTHON|)PATH=(/\w{3,12}){1,4}(:(/\w{3,12}){1,4}){0,4}
+
+    Special cases:
+
+    - $VARNAME= (empty RHS) to tell reprotest to delete the variable
+    - $VARNAME=.{0} to tell reprotest to actually set an empty value
+    - \\x2c and \\x3b to match or generate , and ; respectively.
 user_group.available
     A semicolon-separated ordered set, specifying the available user+group
     combinations that reprotest can ``sudo(1)`` to. Default is empty, in which
