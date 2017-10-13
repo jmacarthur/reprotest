@@ -152,6 +152,8 @@ class BuildContext(collections.namedtuple('_BuildContext',
         return os.path.join(self.local_dist_root, self.build_name)
 
     def make_build_commands(self, script, env):
+        # this dance is necessary because the cwd can't be cd'd into during the
+        # setup phase under some variations like user_group
         _ = self.plan_variations(Build.from_command(
             build_command =
                 'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
@@ -189,16 +191,14 @@ class BuildContext(collections.namedtuple('_BuildContext',
         testbed.check_exec2(
             ['sh', '-ec', 'cd "%s" && rm -rf %s && %s' %
             (self.testbed_src, artifact_pattern, testbed_build_pre or "true")])
-        # this dance is necessary because the cwd can't be cd'd into during the
-        # setup phase under some variations like user_group
-        new_script = build.to_script(no_clean_on_error)
+        build_script = build.to_script(no_clean_on_error)
         logging.info("executing build in %s", build.tree)
         logging.debug("#### REPROTEST BUILD ENVVARS ###################################################\n" +
             "\n".join(environ.env_diff(old_env, build.env)))
         logging.debug("#### BEGIN REPROTEST BUILD SCRIPT ##############################################\n" +
-            new_script)
+            build_script)
         logging.debug("#### END REPROTEST BUILD SCRIPT ################################################")
-        testbed.check_exec2(['sh', '-ec', new_script],
+        testbed.check_exec2(['sh', '-ec', build_script],
             xenv=['-i'] + ['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
         logging.info("build successful, copying artifacts")
