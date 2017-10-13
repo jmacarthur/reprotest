@@ -13,8 +13,8 @@ import random
 import time
 import types
 
-from reprotest import _shell_ast
 from reprotest import mdiffconf
+from reprotest import shell_syn
 from reprotest.utils import AttributeReplacer
 
 
@@ -48,21 +48,19 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
     '''Holds the shell ASTs and various other data, used to execute each build.
 
     Fields:
-        build_command (_shell_ast.Command): The build command itself, including
-            all commands that accept other commands as arguments.  Examples:
-            setarch.
-        setup (_shell_ast.AndList): These are shell commands that change the
+        build_command (shell_syn.Command): The build command itself, including
+            wrapper commands like setarch and sudo that never need cleanup.
+        setup (shell_syn.AndList): These are shell commands that change the
             shell environment and need to be run as part of the same script as
             the main build command but don't take other commands as arguments.
             These execute conditionally because if one command fails,
             the whole script should fail.  Examples: cd, umask.
-        cleanup (_shell_ast.List): All commands that have to be run to return
+        cleanup (shell_syn.List): All commands that have to be run to return
             the testbed to its initial state, before the testbed does its own
-            cleanup.  These are executed only if the build command fails,
-            because otherwise the cleanup has to occur after the build artifact
-            is copied out.  These execution unconditionally, one after another,
+            cleanup.  These execute one after another regardless of failure,
             because all cleanup commands should be attempted irrespective of
-            whether others succeed.  Examples: fileordering.
+            whether others succeed.  Examples: fileordering.  This is *not* run
+            if no_clean_on_error is given and setup or build_command failed.
         env (types.MappingProxyType): Immutable mapping of the environment.
         tree (str): Path to the source root where the build should take place.
     '''
@@ -70,10 +68,10 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
     @classmethod
     def from_command(cls, build_command, env, tree):
         return cls(
-            build_command = _shell_ast.SimpleCommand(
-                "sh", "-ec", _shell_ast.Quote(build_command)),
-            setup = _shell_ast.AndList(),
-            cleanup = _shell_ast.List(),
+            build_command = shell_syn.Command.make(
+                "sh", "-ec", shlex.quote(str(build_command))),
+            setup = shell_syn.AndList(),
+            cleanup = shell_syn.List(),
             env = env,
             tree = tree,
         )
@@ -84,47 +82,36 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
         new_mapping[key] = value
         return self._replace(env=types.MappingProxyType(new_mapping))
 
-    def append_to_build_command(self, command):
-        '''Passes the current build command as the last argument to a given
-        _shell_ast.SimpleCommand.
-
-        '''
-        new_suffix = (command.cmd_suffix +
-                      _shell_ast.CmdSuffix([self.build_command]))
-        new_command = _shell_ast.SimpleCommand(command.cmd_prefix,
-                                               command.cmd_name,
-                                               new_suffix)
+    def prepend_to_build_command(self, *prefix):
+        '''Prepend a wrapper command onto the build_command.'''
+        new_command = shell_syn.Command(
+            cmd_prefix=shell_syn.CmdPrefix(prefix),
+            cmd_suffix=self.build_command)
         return self._replace(build_command=new_command)
 
     def append_setup(self, command):
-        '''Adds a command to the setup phase.
-
-        '''
-        new_setup = self.setup + _shell_ast.AndList([command])
+        '''Adds a command to the setup phase.'''
+        new_setup = self.setup + shell_syn.AndList([command])
         return self._replace(setup=new_setup)
 
     def append_setup_exec(self, *args):
-        return self.append_setup_exec_raw(*map(_shell_ast.Quote, args))
+        return self.append_setup_exec_raw(*map(shlex.quote, args))
 
     def append_setup_exec_raw(self, *args):
-        return self.append_setup(_shell_ast.SimpleCommand.make(*args))
+        return self.append_setup(shell_syn.Command.make(*args))
 
     def prepend_cleanup(self, command):
-        '''Adds a command to the cleanup phase.
-
-        '''
+        '''Adds a command to the cleanup phase.'''
         # if this command fails, save the exit code but keep executing
         # we run with -e, so it would fail otherwise
-        new_cleanup = (_shell_ast.List([_shell_ast.Term(
-                            "{0} || __c=$?".format(command), ';')])
-                       + self.cleanup)
-        return self._replace(cleanup=new_cleanup)
+        new_cleanup = shell_syn.List.make("{0} || __c=$?".format(command))
+        return self._replace(cleanup=new_cleanup + self.cleanup)
 
     def prepend_cleanup_exec(self, *args):
-        return self.prepend_cleanup_exec_raw(*map(_shell_ast.Quote, args))
+        return self.prepend_cleanup_exec_raw(*map(shlex.quote, args))
 
     def prepend_cleanup_exec_raw(self, *args):
-        return self.prepend_cleanup(_shell_ast.SimpleCommand.make(*args))
+        return self.prepend_cleanup(shell_syn.Command.make(*args))
 
     def move_tree(self, source, target, set_tree):
         new_build = self.append_setup_exec(
@@ -135,7 +122,7 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
         else:
             return new_build
 
-    def to_script(self):
+    def to_script(self, no_clean_on_error):
         '''Generates the shell code for the script.
 
         The build command is only executed if all the setup commands
@@ -146,21 +133,35 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
         directory when the cleanup tries to unmount it.)
 
         '''
-        subshell = _shell_ast.Subshell(self.setup +
-                                       _shell_ast.AndList([self.build_command]))
+        subshell = self.setup + shell_syn.AndList([self.build_command])
 
         if self.cleanup:
-            cleanup = """( __c=0; {0} exit $__c; )""".format(str(self.cleanup))
-            return """\
-if {0}; then
-    {1};
+            cleanup = shell_syn.List.make("__c=0") + self.cleanup + \
+                      shell_syn.List.make("exit $__c")
+            main_script = "if ( run_build ); then ( cleanup ); "
+            if no_clean_on_error:
+                main_script += "fi"
+            else:
+                main_script += """\
 else
-    __x=$?;
-    if {1}; then exit $__x; else
-        echo >&2; "cleanup failed with exit code $?"; exit $__x;
-    fi;
+    __x=$?; # save the exit code of run_build
+    if ( cleanup ); then :; else echo >&2 "cleanup failed with exit code $?"; fi;
+    exit $__x
 fi
-""".format(str(subshell), str(cleanup))
+"""
+            return """
+#### BEGIN REPROTEST BUILD SCRIPT ##############################################
+run_build() {{
+    {0}
+}}
+
+cleanup() {{
+    {1}
+}}
+
+{2}
+#### END REPROTEST BUILD SCRIPT ################################################
+""".format(subshell.__str__(4), cleanup.__str__(4), main_script.rstrip()).rstrip()
         else:
             return str(subshell)
 
@@ -231,9 +232,9 @@ def kernel(ctx, build, vary):
     # its two child reprotests will see the same value for "uname" but the
     # tests expect different values.
     if not vary:
-        return build.append_to_build_command(_shell_ast.SimpleCommand.make('linux64', '--uname-2.6'))
+        return build.prepend_to_build_command('linux64', '--uname-2.6')
     else:
-        return build.append_to_build_command(_shell_ast.SimpleCommand.make('linux32'))
+        return build.prepend_to_build_command('linux32')
 
 # TODO: if this locale doesn't exist on the system, Python's
 # locales.getlocale() will return (None, None) rather than this
@@ -298,11 +299,10 @@ def faketime(ctx, build, vary):
     else:
         # otherwise use a date far in the future
         faket = '+373days+7hours+13minutes'
-    settime = _shell_ast.SimpleCommand.make('faketime', faket)
     # faketime's manpages are stupidly misleading; it also modifies file timestamps.
     # this is only mentioned in the README. we do not want this, it really really
     # messes with GNU make and other buildsystems that look at timestamps.
-    return build.add_env('NO_FAKE_STAT', '1').append_to_build_command(settime)
+    return build.add_env('NO_FAKE_STAT', '1').prepend_to_build_command('faketime', faket)
 
 def umask(ctx, build, vary):
     if not vary:
@@ -336,10 +336,9 @@ def user_group(ctx, build, vary):
     else:
         user = user_group # "user" is used below
         sudo_command = ('sudo', '-E', '-u', user)
-    sudobuild = _shell_ast.SimpleCommand.make(*sudo_command)
     binpath = os.path.join(dirname(build.tree), 'bin')
 
-    _ = build.append_to_build_command(sudobuild)
+    _ = build.prepend_to_build_command(*sudo_command)
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''

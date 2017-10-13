@@ -1,3 +1,9 @@
+reprotest (0.7.3) UNRELEASED; urgency=medium
+
+  * Fix --no-clean-on-error, it should work again.
+
+ -- Ximin Luo <infinity0@debian.org>  Fri, 13 Oct 2017 15:42:51 +0200
+
 reprotest (0.7.2) unstable; urgency=medium
 
   * Various bug fixes to get the basic dsc+schroot example working.

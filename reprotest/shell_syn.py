@@ -1,6 +1,85 @@
 # Licensed under the GPL: https://www.gnu.org/licenses/gpl-3.0.en.html
 # For details: reprotest/debian/copyright
 
+import collections
+import itertools
+
+
+### Formatting
+
+class _Tuple(tuple):
+    '''Tuple subclass that returns appropriate types from methods.
+
+    This overloads tuple methods so they return the subclass's type
+    rather than tuple and provides a nicer __repr__.
+    '''
+    __slots__ = ()
+
+    def __add__(self, other):
+        if self.__class__ is other.__class__:
+            return self.__class__(itertools.chain(self, other))
+        else:
+            raise TypeError('Cannot add two shell AST nodes of different types.')
+    __iadd__ = __add__
+
+    def __radd__(self, other):
+        if self.__class__ is other.__class__:
+            return self.__class__(itertools.chain(other, self))
+        else:
+            raise TypeError('Cannot add two shell AST nodes of different types: %s, %s' % (repr(self), repr(other)))
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.__class__(super().__getitem__(index))
+        else:
+            return super().__getitem__(index)
+
+    def __repr__(self):
+        return self.__class__.__name__ + super().__repr__()
+
+
+    def __str__(self, indent=None):
+        return ' '.join(str(field) for field in self)
+
+
+class CmdPrefix(_Tuple):
+    pass
+
+class CmdSuffix(_Tuple):
+    pass
+
+class Command(collections.namedtuple('_Command', 'cmd_prefix cmd_suffix')):
+    '''A command arbitrarily divided as (prefix, suffix) for formatting.'''
+    def __str__(self, indent=None):
+        sep = ' ' if indent is None else ' \\\n%s' % (" " * indent)
+        return ((self.cmd_prefix.__str__(indent) + sep if self.cmd_prefix else '') +
+                (self.cmd_suffix.__str__(indent) if self.cmd_suffix else ''))
+
+    @classmethod
+    def make(cls, *args):
+        return cls(CmdPrefix(), CmdSuffix(args))
+
+
+class List(_Tuple):
+    '''List of commands separated by semicolon, for formatting.'''
+    def __str__(self, indent=None):
+        sep = '; ' if indent is None else '; \\\n%s' % (" " * indent)
+        return sep.join(field.__str__(indent) for field in self)
+
+    @classmethod
+    def make(cls, *args):
+        return cls(list(map(Command.make, args)))
+
+
+class AndList(_Tuple):
+    '''List of commands separated by &&, for formatting.'''
+    def __str__(self, indent=None):
+        sep = ' && ' if indent is None else ' && \\\n%s' % (" " * indent)
+        return sep.join(field.__str__(indent) for field in self)
+
+
+### Parsing
+
 # http://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
 # Special chars except allowed ones <space> " ' \
 special_except_quotes=r"""

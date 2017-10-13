@@ -51,6 +51,7 @@ def get_all_servers():
 # approaches.
 
 class Testbed(adt_testbed.Testbed):
+
     def check_exec2(self, argv, stdout=False, kind='short', xenv=[]):
         """Like check_exec but does not bomb on stderr, and can pass xenv."""
         (code, out, err) = self.execute(argv,
@@ -60,6 +61,11 @@ class Testbed(adt_testbed.Testbed):
             self.bomb('"%s" failed with status %i' % (' '.join(argv), code),
                       adtlog.AutopkgtestError)
         return out
+
+    def bomb(self, m, _type=adtlog.TestbedFailure):
+        adtlog.debug('%s %s' % (_type.__name__, m))
+        #self.stop() # don't stop when bombing, so we can control it via no_clean_on_error
+        raise _type(m)
 
 @contextlib.contextmanager
 def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian'):
@@ -76,8 +82,11 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
     should_clean = True
     try:
         yield testbed
-    except:
+    except GeneratorExit:
+        pass
+    except BaseException as e:
         if no_clean_on_error:
+            logging.warn("preserving temporary stuff: %s", testbed.scratch)
             should_clean = False
         raise
     finally:
@@ -143,11 +152,17 @@ class BuildContext(collections.namedtuple('_BuildContext',
         return os.path.join(self.local_dist_root, self.build_name)
 
     def make_build_commands(self, script, env):
-        return Build.from_command(
-            build_command = script,
+        _ = self.plan_variations(Build.from_command(
+            build_command =
+                'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
+                'umask "$REPROTEST_UMASK"; unset REPROTEST_UMASK; ' +
+                script,
             env = types.MappingProxyType(env),
             tree = self.testbed_src
-        )
+        ))
+        _ = _.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % _.tree)
+        _ = _.append_setup_exec_raw('export', 'REPROTEST_UMASK=$(umask)')
+        return _
 
     def plan_variations(self, build):
         actions = self.variations.spec.actions()
@@ -166,7 +181,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logging.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
         testbed.command('copyup', (self.testbed_dist, os.path.join(self.local_dist, '')))
 
-    def run_build(self, testbed, build, artifact_pattern, testbed_build_pre):
+    def run_build(self, testbed, build, artifact_pattern, testbed_build_pre, no_clean_on_error):
         logging.info("starting build with source directory: %s, artifact pattern: %s",
             self.testbed_src, artifact_pattern)
         # we remove existing artifacts in case the build doesn't overwrite it
@@ -176,11 +191,9 @@ class BuildContext(collections.namedtuple('_BuildContext',
             (self.testbed_src, artifact_pattern, testbed_build_pre or "true")])
         # this dance is necessary because the cwd can't be cd'd into during the
         # setup phase under some variations like user_group
-        _ = build
-        _ = _.append_setup_exec_raw('export', 'REPROTEST_BUILD_PATH=%s' % build.tree)
-        _ = _.append_setup_exec_raw('export', 'REPROTEST_UMASK=$(umask)')
-        new_script = _.to_script()
-        logging.info("executing: %s", new_script)
+        new_script = build.to_script(no_clean_on_error)
+        logging.info("executing build...")
+        logging.debug(new_script)
         testbed.check_exec2(['sh', '-ec', new_script],
             xenv=['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
@@ -286,16 +299,9 @@ class TestArgs(collections.namedtuple('_Test',
                     var = var.replace.spec.apply_dynamic_defaults(source_root)
                     bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
-                    build = bctx.make_build_commands(
-                        'cd "$REPROTEST_BUILD_PATH"; unset REPROTEST_BUILD_PATH; ' +
-                        'umask "$REPROTEST_UMASK"; unset REPROTEST_UMASK; ' +
-                        build_command, os.environ)
-                    logging.log(5, "build %s: %r", name, build)
-                    build = bctx.plan_variations(build)
-                    logging.log(5, "build %s: %r", name, build)
-
+                    build = bctx.make_build_commands(build_command, os.environ)
                     bctx.copydown(testbed)
-                    bctx.run_build(testbed, build, artifact_pattern, testbed_build_pre)
+                    bctx.run_build(testbed, build, artifact_pattern, testbed_build_pre, no_clean_on_error)
                     bctx.copyup(testbed)
 
                     name_variation = yield bctx.local_dist
@@ -597,7 +603,7 @@ def run(argv, dry_run=None):
     parsed_args = command_line(parser, config_args + argv)
 
     verbosity = parsed_args.verbosity
-    adtlog.verbosity = verbosity
+    adtlog.verbosity = verbosity - 1
     logging.basicConfig(
         format='%(message)s', level=30-10*verbosity, stream=sys.stdout)
     logging.debug('%r', parsed_args)
@@ -648,8 +654,10 @@ def run(argv, dry_run=None):
     testbed_build_pre = parsed_args.testbed_build_pre
     diffoscope_args = parsed_args.diffoscope_arg
     source_pattern = parsed_args.source_pattern
-    if verbosity >= 2:
+    if verbosity >= 3:
         diffoscope_args += ["--debug"]
+    elif not verbosity:
+        diffoscope_args += ["--no-progress"]
 
     # Do presets
     if build_command == 'auto':
