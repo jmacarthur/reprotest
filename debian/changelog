@@ -1,10 +1,10 @@
-reprotest (0.7.3) UNRELEASED; urgency=medium
+reprotest (0.7.3) unstable; urgency=medium
 
   * Fix --no-clean-on-error, it should work again.
   * Add a --env-build option to try to determine which (known and unknown)
     environment variables cause reproducibility.
 
- -- Ximin Luo <infinity0@debian.org>  Fri, 13 Oct 2017 15:42:51 +0200
+ -- Ximin Luo <infinity0@debian.org>  Fri, 13 Oct 2017 16:48:04 +0200
 
 reprotest (0.7.2) unstable; urgency=medium
 
