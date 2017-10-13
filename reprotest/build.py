@@ -160,7 +160,6 @@ else
 fi
 """
             return """\
-#### BEGIN REPROTEST BUILD SCRIPT ##############################################
 run_build() {{
     {0}
 }}
@@ -170,7 +169,6 @@ cleanup() {{
 }}
 
 {2}
-#### END REPROTEST BUILD SCRIPT ################################################
 """.format(subshell.__str__(4), cleanup.__str__(4), main_script.rstrip()).rstrip()
         else:
             return str(subshell)
@@ -221,8 +219,8 @@ def fileordering(ctx, build, vary):
     _ = build.move_tree(build.tree, old_tree, False)
     _ = _.append_setup_exec('mkdir', '-p', build.tree)
     _ = _.prepend_cleanup_exec('rmdir', build.tree)
-    disorderfs = ['disorderfs'] + ([] if ctx.verbosity else ["-q"])
-    _ = _.append_setup_exec(*(disorderfs + ['--shuffle-dirents=yes', old_tree, build.tree]))
+    disorderfs = ['disorderfs'] + (['>&2'] if ctx.verbosity >= 2 else ['-q'])
+    _ = _.append_setup_exec_raw(*disorderfs, *map(shlex.quote, ['--shuffle-dirents=yes', old_tree, build.tree]))
     _ = _.prepend_cleanup_exec('fusermount', '-u', build.tree)
     # the "user_group" variation hacks PATH to run "sudo -u XXX" instead of various tools, pick it up here
     binpath = os.path.join(dirname(build.tree), 'bin')

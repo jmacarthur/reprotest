@@ -86,7 +86,7 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
         pass
     except BaseException as e:
         if no_clean_on_error:
-            logging.warn("preserving temporary stuff: %s", testbed.scratch)
+            logging.warn("preserving temporary files in: %s", testbed.scratch)
             should_clean = False
         raise
     finally:
@@ -192,16 +192,19 @@ class BuildContext(collections.namedtuple('_BuildContext',
         # this dance is necessary because the cwd can't be cd'd into during the
         # setup phase under some variations like user_group
         new_script = build.to_script(no_clean_on_error)
-        logging.info("executing build in %s ...", build.tree)
-        logging.debug("#### REPROTEST BUILD ENVVARS ##################################################")
-        logging.debug("\n".join(environ.env_diff(old_env, build.env)))
-        logging.debug(new_script)
+        logging.info("executing build in %s", build.tree)
+        logging.debug("#### REPROTEST BUILD ENVVARS ###################################################\n" +
+            "\n".join(environ.env_diff(old_env, build.env)))
+        logging.debug("#### BEGIN REPROTEST BUILD SCRIPT ##############################################\n" +
+            new_script)
+        logging.debug("#### END REPROTEST BUILD SCRIPT ################################################")
         testbed.check_exec2(['sh', '-ec', new_script],
             xenv=['-i'] + ['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
+        logging.info("build successful, copying artifacts")
         dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
         testbed.check_exec2(shell_copy_pattern(dist_base, self.testbed_src, artifact_pattern))
-        # FIXME: this is needed because of the FIXME in build.faketime(). we can rm it after that is fixed
+        # FIXME: `touch` is needed because of the FIXME in build.faketime(). we can rm it after that is fixed
         testbed.check_exec2(['sh', '-ec',
             r"""cd "{0}" && touch -d@0 . .. {1}""".format(dist_base, artifact_pattern)])
 
@@ -655,8 +658,7 @@ def run(argv, dry_run=None):
 
     verbosity = parsed_args.verbosity
     adtlog.verbosity = verbosity - 1
-    logging.basicConfig(
-        format='%(message)s', level=30-10*verbosity, stream=sys.stdout)
+    logging.basicConfig(level=30-10*verbosity)
     logging.debug('%r', parsed_args)
 
     # Decide which form of the CLI we're using
