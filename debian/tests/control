@@ -1,1 +1,5 @@
-Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group pytest-3
+Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group pytest-3 -m 'not need_builddeps'
+Depends: @, python3-pytest, faketime, locales-all
+
+Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group pytest-3 -m 'need_builddeps'
+Depends: @builddeps@

@@ -62,6 +62,7 @@ def test_variations(virtual_server, captures):
     expected = captures not in TEST_VARIATIONS
     check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
 
+@pytest.mark.need_builddeps
 def test_self_build(virtual_server):
     # at time of writing (2016-09-23) these are not expected to reproduce;
     # if these start failing then you should change 1 == to 0 == but please
@@ -100,6 +101,7 @@ def test_command_lines():
     assert testbed_args.virtual_server_args == ['schroot', 'unstable-amd64-sbuild']
 
 # TODO: don't call it if we don't have debian/, e.g. for other distros
+@pytest.mark.need_builddeps
 def test_debian_build(virtual_server):
     # This is a bit dirty though it works - when building the debian package,
     # debian/rules will call this, which will call debian/rules, so ../*.deb
