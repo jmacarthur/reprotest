@@ -570,7 +570,7 @@ def print_sudoers(spec):
 
     user, group = current_user_group()
     a = "[a-zA-Z0-9]"
-    b = "/tmp/autopkgtest.{0}{0}{0}{0}{0}{0}".format(a)
+    b = "/tmp/reprotest.{0}{0}{0}{0}{0}{0}".format(a)
     bx = os.path.join(b, "build-experiment-[1-9]")
     variables = {
         "user": user,
