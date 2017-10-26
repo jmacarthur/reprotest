@@ -219,6 +219,11 @@ of names is given in the --help text for --variations.
 Most variations do not have parameters, and for them only the + and - operators
 are relevant. The variations that accept parameters are:
 
+domain_host.use_sudo
+    An integer, whether to use sudo(1) together with unshare(1) to change the
+    system hostname and domainname. 0 means don't use sudo; any non-zero value
+    means to use sudo. Default is 0, however this is not recommended and make
+    may your build fail, see "Varying the domain and host names" for details.
 environment.variables
     A semicolon-separated ordered set, specifying environment variables that
     reprotest should try to vary. Default is "REPROTEST_CAPTURE_ENVIRONMENT".
@@ -269,6 +274,22 @@ means to vary home, time (the last given value for --variations), timezone, and
 Varying the user or group
 =========================
 
+Doing this without sudo *may* result in your build failing.
+
+Failure is likely if your build must do system-related things - as opposed to
+only processing bits and bytes. This is because it runs in a separate namespace
+where your non-privileged user looks like it is "root", but this prevents the
+filesystem from recognising files owned by the real "root" user, amongst other
+things. This is a limitation of unshare(1) and it is not possible work around
+this in reprotest without heavy effort.
+
+Therefore, it is recommended to run this variation with use_sudo=1. To avoid
+password prompts, see the section "Avoid sudo(1) password prompts" below.
+
+
+Varying the user or group
+=========================
+
 If you also vary fileordering at the same time (this is the case by default),
 each user you use needs to be in the "fuse" group. Do that by running `usermod
 -aG fuse $OTHERUSER` as root.
@@ -280,22 +301,14 @@ There is currently no good way to do this. The following is a very brittle and
 unclean solution. You will have to decide for yourself if it's worth it for
 your use-case::
 
-    $ OTHERUSER=(YOUR OTHER USER HERE)
-    $ a="[a-zA-Z0-9]"
-    $ cat <<EOF | sudo tee -a /etc/sudoers.d/local-reprotest
-    $USER ALL = ($OTHERUSER) NOPASSWD: ALL
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/const_build_path/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$OTHERUSER $USER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]-before-disorderfs/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/const_build_path/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]/
-    $USER ALL = NOPASSWD: /bin/chown -h -R --from=$USER $OTHERUSER /tmp/autopkgtest.$a$a$a$a$a$a/build-experiment-[1-9]-before-disorderfs/
-    EOF
+    $ reprotest --print-sudoers \
+        --variations=user_group.available+=guest-builder,domain_host.use_sudo=1 \
+        | sudo EDITOR=tee visudo -f /etc/sudoers.d/local-reprotest
 
-Repeat this for each user you'd like to use. Obviously, don't pick a privileged
-user for this purpose, such as root.
+Make sure you set the variations you actually want to use. Obviously, don't
+pick privileged users for this purpose, such as root.
 
-(Simplifying the above using wildcards would open up passwordless access to
+(Simplifying the output using wildcards, would open up passwordless access to
 chown anything on your system, because wildcards here match whitespace. I don't
 know what the sudo authors were thinking.)
 

@@ -605,6 +605,9 @@ def cli_parser():
         'implemented very well and may leave cruft on your system.')
     group3.add_argument('--dry-run', action='store_true', default=False,
         help='Don\'t run the builds, just print what would happen.')
+    group3.add_argument('--print-sudoers', action='store_true', default=False,
+        help='Print a sudoers file for passwordless operation using the given '
+        '--variations, useful for user_group.available, domain_host.use_sudo.')
 
     return parser
 
@@ -647,6 +650,14 @@ def command_line(parser, argv):
     return args
 
 
+def get_main_spec(parsed_args):
+    variations = [parsed_args.variations] + parsed_args.vary
+    if parsed_args.dont_vary:
+        logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
+        variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
+    return VariationSpec().extend(variations)
+
+
 def run(argv, dry_run=None):
     # Argparse exits with status code 2 if something goes wrong, which
     # is already the right status exit code for reprotest.
@@ -655,11 +666,16 @@ def run(argv, dry_run=None):
     config_args = config_to_args(parser, parsed_args.config_file)
     # Command-line arguments override config file settings.
     parsed_args = command_line(parser, config_args + argv)
+    dry_run = parsed_args.dry_run or dry_run
 
     verbosity = parsed_args.verbosity
     adtlog.verbosity = verbosity - 1
     logging.basicConfig(level=30-10*verbosity)
     logging.debug('%r', parsed_args)
+
+    if not dry_run and parsed_args.print_sudoers:
+        build.print_sudoers(get_main_spec(parsed_args))
+        return 0
 
     # Decide which form of the CLI we're using
     build_command, source_root = None, None
@@ -729,12 +745,7 @@ def run(argv, dry_run=None):
             source_pattern = values.source_pattern + (" " + source_pattern if source_pattern else "")
 
     # Variations args
-    variations = [parsed_args.variations] + parsed_args.vary
-    if parsed_args.dont_vary:
-        logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
-        variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
-    spec = VariationSpec().extend(variations)
-    specs = [spec]
+    specs = [get_main_spec(parsed_args)]
     if parsed_args.auto_build:
         check_func = check_auto
     elif parsed_args.env_build:
@@ -776,7 +787,7 @@ def run(argv, dry_run=None):
                             source_pattern, no_clean_on_error, diffoscope_args)
 
     check_args = (test_args, testbed_args, build_variations)
-    if parsed_args.dry_run or dry_run:
+    if dry_run:
         return check_args
     else:
         try:

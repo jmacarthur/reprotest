@@ -75,7 +75,7 @@ PRESET_DEB_DIR = ReprotestPreset(
 def preset_deb_schroot(fn, preset):
     return preset.re_replace.build_command("(.*)", lambda m: r"""
         if [ "$(id -u)" = 0 ]; then
-            sudo -E -u "$LOGNAME" sh -ec {0};
+            sudo -E -u "$SUDO_USER" env -u SUDO_USER sh -ec {0};
         else
             sh -ec {0};
         fi
@@ -83,7 +83,7 @@ def preset_deb_schroot(fn, preset):
         # schroot starts us off as root, we drop privs here to do the actual build
     ).set.testbed_init(
         # need to symlink /etc/mtab to work around a fusermount(1) deficiency
-        'apt-get -y --no-install-recommends install disorderfs faketime locales-all sudo util-linux; \
+        'apt-get -y --no-install-recommends install disorderfs fakeroot faketime locales-all sudo util-linux; \
         test -c /dev/fuse || mknod -m 666 /dev/fuse c 10 229; \
         test -f /etc/mtab || ln -s ../proc/self/mounts /etc/mtab'
     ).set.testbed_build_pre(

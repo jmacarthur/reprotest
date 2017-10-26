@@ -11,7 +11,7 @@ export PYBUILD_NAME = reprotest
 #
 # To be user-friendly the user_group variation defaults to ON but is a no-op.
 # This causes tests to fail since they expect something to be captured. So ignore it here
-export REPROTEST_TEST_DONTVARY = fileordering,user_group
+export REPROTEST_TEST_DONTVARY = fileordering,user_group,domain_host
 
 override_dh_auto_configure:
 	test $$(python3 setup.py --version) = $$(dpkg-parsechangelog -SVersion)

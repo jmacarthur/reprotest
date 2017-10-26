@@ -45,7 +45,7 @@ def basename(p):
     return os.path.normpath(os.path.basename(os.path.normpath(p)))
 
 
-class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tree')):
+class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tree aux_tree')):
     '''Holds the shell ASTs and various other data, used to execute each build.
 
     Fields:
@@ -64,18 +64,26 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
             if no_clean_on_error is given and setup or build_command failed.
         env (types.MappingProxyType): Immutable mapping of the environment.
         tree (str): Path to the source root where the build should take place.
+        aux_tree (str): Path where auxilliary files are stored by reprotest.
+            When using cls.from_command(), this is automatically created and
+            cleaned up by the build script.
     '''
 
     @classmethod
     def from_command(cls, build_command, env, tree):
-        return cls(
+        aux_tree = os.path.join(dirname(tree), basename(tree) + '-aux')
+        _ = cls(
             build_command = shell_syn.Command.make(
                 "sh", "-ec", shlex.quote(str(build_command))),
             setup = shell_syn.AndList(),
             cleanup = shell_syn.List(),
             env = env,
             tree = tree,
+            aux_tree = aux_tree,
         )
+        _ = _.append_setup_exec('mkdir', '-p', aux_tree)
+        _ = _.prepend_cleanup_exec('rm', '-rf', aux_tree)
+        return _
 
     def add_env(self, key, value):
         '''Helper function for adding a key-value pair to an immutable mapping.'''
@@ -95,7 +103,7 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
     def prepend_to_build_command(self, *prefix):
         '''Prepend a wrapper command onto the build_command.'''
         new_command = shell_syn.Command(
-            cmd_prefix=shell_syn.CmdPrefix(prefix),
+            cmd_prefix=shell_syn.CmdPrefix(map(shlex.quote, prefix)),
             cmd_suffix=self.build_command)
         return self._replace(build_command=new_command)
 
@@ -148,17 +156,21 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
         if self.cleanup:
             cleanup = shell_syn.List.make("__c=0") + self.cleanup + \
                       shell_syn.List.make("exit $__c")
-            main_script = "if ( run_build ); then ( cleanup ); "
-            if no_clean_on_error:
-                main_script += "fi"
-            else:
-                main_script += """\
-else
+            # TODO: the below can be extended with a custom command. shell
+            # doesn't work yet though; we need to hook into autopkgtest better.
+            whether_to_clean = '! ' + str(bool(no_clean_on_error)).lower()
+            main_script = """\
+trap '( cleanup )' HUP INT QUIT ABRT TERM PIPE # FIXME doesn't quite work reliably yet
+
+if ( run_build ); then ( cleanup ); else
     __x=$?; # save the exit code of run_build
-    if ( cleanup ); then :; else echo >&2 "cleanup failed with exit code $?"; fi;
+    if ( {0} ); then
+        if ( cleanup ); then :; else echo >&2 "cleanup failed with exit code $?"; fi;
+    fi
     exit $__x
 fi
-"""
+""".format(whether_to_clean)
+
             return """\
 run_build() {{
     {0}
@@ -195,11 +207,48 @@ def environment(ctx, build, vary):
             added += [(k, v)]
     return build.modify_env(added, removed)
 
-# FIXME: this requires superuser privileges.
-# Probably need to couple with "namespace" UTS unshare when not running in a
-# virtual_server, see below for details
-# def domain_host(ctx, script, env, tree):
-#     return script, env, tree
+def domain_host(ctx, build, vary):
+    if not vary:
+        return build
+    hostname = "reprotest-capture-hostname"
+    domainname = "reprotest-capture-domainname"
+    _ = build
+
+    # TODO: below only works on linux, of course..
+    if ctx.spec.domain_host.use_sudo:
+        ns_uts, ns_mnt = ('%s/ns-%s' % (build.aux_tree, ns) for ns in ("uts", "mnt"))
+        _ = _.append_setup_exec('touch', ns_mnt, ns_uts)
+        # make ns_mnt have propagation=private, required for --mount=$ns_mnt
+        _ = _.append_setup_exec('sudo', 'mount', '-B', ns_mnt, ns_mnt)
+        _ = _.append_setup_exec('sudo', 'mount', '--make-private', ns_mnt)
+        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
+        # create our unshare
+        ns_args = ['--mount=%s' % ns_mnt, '--uts=%s' % ns_uts]
+        _ = _.append_setup_exec('sudo', 'unshare', *ns_args, 'true')
+        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
+        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_uts)
+        # configure our unshare
+        nsenter = ['sudo', 'nsenter'] + ns_args
+        _ = _.append_setup_exec(*nsenter, 'hostname', hostname)
+        _ = _.append_setup_exec(*nsenter, 'domainname', domainname)
+        # the mount -B hack suppresses spurious sudo(1) warnings about "unable to resolve host"
+        _ = _.append_setup_exec('sh', '-ec',
+            'echo "127.0.0.1 {1}" > {0}/hosts && cat /etc/hosts >> {0}/hosts'.format(build.aux_tree, hostname))
+        _ = _.append_setup_exec(*nsenter, 'mount', '-B', '%s/hosts' % build.aux_tree, '/etc/hosts')
+        # wrap our build command
+        _ = _.prepend_to_build_command('sudo', '-E', 'nsenter', *ns_args, *make_sudo_command(*current_user_group()))
+    else:
+        logging.warn("Not using sudo for domain_host; it is recommended. Your build may fail.")
+        logging.warn("Be sure to `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` if on a Debian system.")
+        if "user_group" in ctx.spec and ctx.spec.user_group.available:
+            logging.error("Incompatible variations: domain_host.use_sudo False, user_group.available non-empty.")
+            raise ValueError("Incompatible variations; check the log for details.")
+        _ = _.prepend_to_build_command(*"unshare -r --uts".split(),
+            "sh", "-ec", r"""
+            hostname {1}
+            domainname "{2}"
+            """.format(build.aux_tree, hostname, domainname) + '"$@"', "-")
+    return _
 
 # Note: this has to go before fileordering because we can't move mountpoints
 # TODO: this variation makes it impossible to parallelise the build, for most
@@ -324,6 +373,30 @@ def umask(ctx, build, vary):
     else:
         return build.append_setup_exec('umask', '0002')
 
+
+def current_user_group():
+    return getpass.getuser(), grp.getgrgid(os.getgid()).gr_name
+
+
+def make_sudo_command(user, group):
+    assert user or group
+    userarg = ['-u', user] if user else []
+    grouparg = ['-g', group] if group else []
+    return ['sudo', '-E'] + userarg + grouparg + ['env',
+        '-u', 'SUDO_COMMAND', '-u', 'SUDO_GID', '-u', 'SUDO_UID', '-u', 'SUDO_USER']
+
+def parse_user_group(user_group):
+    if not user_group or user_group == ':':
+        raise ValueError("user_group is empty: '%s'" % user_group)
+    if ":" in user_group:
+        user, group = user_group.split(":", 1)
+        if user:
+            return user, group
+        else:
+            return None, group
+    else:
+        return user_group, None
+
 # Note: this needs to go before anything that might need to run setup commands
 # as the other user (e.g. due to permissions).
 @tool_required("sudo")
@@ -337,34 +410,26 @@ def user_group(ctx, build, vary):
         "alternatively, suppress this warning with --variations=-user_group")
         return build
 
-    olduser = getpass.getuser()
-    oldgroup = grp.getgrgid(os.getgid()).gr_name
+    olduser, oldgroup = current_user_group()
     user_group = random.choice(list(set(ctx.spec.user_group.available) - set([(olduser, oldgroup)])))
-    if ":" in user_group:
-        user, group = user_group.split(":", 1)
-        if user:
-            sudo_command = ('sudo', '-E', '-u', user, '-g', group)
-        else:
-            user = olduser
-            sudo_command = ('sudo', '-E', '-g', group)
-    else:
-        user = user_group # "user" is used below
-        sudo_command = ('sudo', '-E', '-u', user)
+    user, group = parse_user_group(user_group)
+    sudo_command = make_sudo_command(user, group)
+    if not user:
+        user = olduser
     binpath = os.path.join(dirname(build.tree), 'bin')
 
-    _ = build.prepend_to_build_command(*sudo_command,
-        *["env", "-u", "SUDO_COMMAND", "-u", "SUDO_GID", "-u", "SUDO_UID", "-u", "SUDO_USER"])
+    _ = build.prepend_to_build_command(*sudo_command)
     # disorderfs needs to run as a different user.
     # we prefer that to running it as root, principle of least-privilege.
     _ = _.append_setup_exec('sh', '-ec', r'''
-mkdir -p "{0}"
-printf '#!/bin/sh\n{1} /usr/bin/disorderfs "$@"\n' > "{0}"/disorderfs
-chmod +x "{0}"/disorderfs
-printf '#!/bin/sh\n{1} /bin/mkdir "$@"\n' > "{0}"/mkdir
-chmod +x "{0}"/mkdir
-printf '#!/bin/sh\n{1} /bin/fusermount "$@"\n' > "{0}"/fusermount
-chmod +x "{0}"/fusermount
-'''.format(binpath, " ".join(map(shlex.quote, sudo_command))))
+        mkdir -p "{0}"
+        printf '#!/bin/sh\n{1} /usr/bin/disorderfs "$@"\n' > "{0}"/disorderfs
+        chmod +x "{0}"/disorderfs
+        printf '#!/bin/sh\n{1} /bin/mkdir "$@"\n' > "{0}"/mkdir
+        chmod +x "{0}"/mkdir
+        printf '#!/bin/sh\n{1} /bin/fusermount "$@"\n' > "{0}"/fusermount
+        chmod +x "{0}"/fusermount
+    '''.format(binpath, " ".join(map(shlex.quote, sudo_command))))
     _ = _.prepend_cleanup_exec('sh', '-ec',
         'cd "{0}" && rm -f disorderfs mkdir fusermount'.format(binpath))
     _ = _.append_setup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
@@ -382,8 +447,8 @@ VARIATIONS = collections.OrderedDict([
     ('build_path', build_path),
     ('user_group', user_group),
     # ('cpu', cpu),
-    # ('domain_host', domain_host),
     ('fileordering', fileordering),
+    ('domain_host', domain_host), # needs to run after all other mounts have been set
     ('home', home),
     ('kernel', kernel),
     ('locales', locales),
@@ -435,6 +500,12 @@ class UserGroupVariation(collections.namedtuple('_UserGroupVariation', 'availabl
         return cls(mdiffconf.strlist_set(";"))
 
 
+class DomainHostVariation(collections.namedtuple('_DomainHostVariation', 'use_sudo')):
+    @classmethod
+    def default(cls):
+        return cls(0)
+
+
 class VariationSpec(mdiffconf.ImmutableNamespace):
     @classmethod
     def default(cls, variations=VARIATIONS):
@@ -442,6 +513,7 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
             "environment": EnvironmentVariation.default(),
             "user_group": UserGroupVariation.default(),
             "time": TimeVariation.default(),
+            "domain_host": DomainHostVariation.default(),
         }
         return cls(**{k: default_overrides.get(k, True) for k in variations})
 
@@ -490,6 +562,53 @@ class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
     @property
     def replace(self):
         return AttributeReplacer(self, [])
+
+
+def print_sudoers(spec):
+    logging.warn("This feature is EXPERIMENTAL, use at your own risk.")
+    logging.warn("The output may be out-of-date, please file bugs if it doesn't work...")
+
+    user, group = current_user_group()
+    a = "[a-zA-Z0-9]"
+    b = "/tmp/autopkgtest.{0}{0}{0}{0}{0}{0}".format(a)
+    bx = os.path.join(b, "build-experiment-[1-9]")
+    variables = {
+        "user": user,
+        "group": group,
+        "base": b,
+        "base_ex": bx,
+    }
+
+    if "user_group" in spec and spec.user_group.available:
+        user_groups = [parse_user_group(user_group) for user_group in spec.user_group.available]
+        users = sorted(set(user for user, group in user_groups if user))
+        for otheruser in users:
+            print("""\
+# Rules for varying user_group with user %(otheruser)s
+%(user)s ALL = (%(otheruser)s) NOPASSWD: ALL
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base)s/const_build_path/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base_ex)s/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base_ex)s-before-disorderfs/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base)s/const_build_path/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base_ex)s/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base_ex)s-before-disorderfs/
+""" % dict(**variables, **{
+        "otheruser": otheruser
+    }))
+
+    if "domain_host" in spec and spec.domain_host.use_sudo:
+        print("""\
+# Rules for varying domain_host
+%(user)s ALL = NOPASSWD: /bin/mount -B %(base_ex)s-aux/ns-mnt %(base_ex)s-aux/ns-mnt
+%(user)s ALL = NOPASSWD: /bin/mount --make-private %(base_ex)s-aux/ns-mnt
+%(user)s ALL = NOPASSWD: /usr/bin/unshare --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts true
+%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts hostname reprotest-*
+%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts domainname reprotest-*
+%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts mount -B %(base_ex)s-aux/hosts /etc/hosts
+%(user)s ALL = NOPASSWD:SETENV: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts sudo -E -u %(user)s -g %(group)s env *
+%(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-mnt
+%(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-uts
+""" % variables)
 
 
 if __name__ == "__main__":

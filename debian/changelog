@@ -1,6 +1,8 @@
 reprotest (0.7.4) UNRELEASED; urgency=medium
 
   * Hopefully fix the autopkgtest tests.
+  * Add a domain_host variation.
+  * Add a --print-sudoers feature.
 
  -- Ximin Luo <infinity0@debian.org>  Fri, 20 Oct 2017 12:33:21 +0200
 
