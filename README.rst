@@ -32,7 +32,7 @@ These two invocations are equivalent; you can pick the most convenient one
 for your use-case. When using these from a shell:
 
   * If the build command has spaces, you will need to quote them, e.g.
-    ``reprotest "debuild -b -uc -us" [..]``.
+    ``reprotest "dpkg-buildpackage -b --no-sign" [..]``.
 
   * If you want to use several build artifact patterns, or if you want to
     use shell wildcards as a pattern, you will also need to quote them, e.g.
@@ -54,8 +54,8 @@ Running in a virtual server
 You can also run the build inside what is called a "virtual server".
 This could be a container, a chroot, etc. You run them like this::
 
-    $ reprotest 'python3 setup.py bdist_wheel' 'dist/*.whl' -- qemu    /path/to/qemu.img
-    $ reprotest 'debuild -b -uc -us'           '../*.deb'   -- schroot unstable-amd64
+    $ reprotest 'python3 setup.py bdist_wheel'   'dist/*.whl' -- qemu    /path/to/qemu.img
+    $ reprotest 'dpkg-buildpackage -b --no-sign' '../*.deb'   -- schroot unstable-amd64
 
 There are different server types available. See ``--help`` for a list of
 them, which appears near the top, in the "virtual\_server\_args" part of

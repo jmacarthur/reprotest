@@ -11,8 +11,7 @@ Build-Depends: debhelper (>= 10),
  python3-setuptools,
  help2man <!nodoc>,
  python3-docutils <!nodoc>,
-# tests.py uses debuild from devscripts, which itself uses lintian
- devscripts <!nocheck>,
+# tests.py uses dpkg-buildpackage which uses lintian
  diffoscope <!nocheck>,
  faketime <!nocheck>,
  lintian <!nocheck>,

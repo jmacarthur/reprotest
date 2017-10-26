@@ -69,8 +69,7 @@ def test_self_build(virtual_server):
     # figure out which version of setuptools made things reproduce and add a
     # versioned dependency on that one
     assert(1 == subprocess.call(REPROTEST + ['python3 setup.py bdist', 'dist/*.tar.gz'] + virtual_server))
-    assert(1 == subprocess.call(REPROTEST + ['python3 setup.py sdist; sleep 2', 'dist/*.tar.gz'] + virtual_server))
-    assert(1 == subprocess.call(REPROTEST + ['python3 setup.py bdist_wheel', 'dist/*.whl'] + virtual_server))
+    assert(1 == subprocess.call(REPROTEST + ['python3 setup.py sdist', 'dist/*.tar.gz'] + virtual_server))
 
 def test_command_lines():
     test_args, _, _ = check_command_line(".".split(), 0)
@@ -108,6 +107,6 @@ def test_debian_build(virtual_server):
     # gets written twice and the second one is the "real" one, but since it
     # should all be reproducible, this should be OK.
     assert(0 == subprocess.call(
-        REPROTEST + ['debuild -b -nc -uc -us', '../*.deb'] + virtual_server,
+        REPROTEST + ['dpkg-buildpackage -b -nc --no-sign', '../*.deb'] + virtual_server,
         # "nocheck" to stop tests recursing into themselves
         env=dict(list(os.environ.items()) + [("DEB_BUILD_OPTIONS", "nocheck")])))

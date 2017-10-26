@@ -48,7 +48,7 @@ For the host system and the two containers, run:
     (Additionally for mk-sbuild stable, enable the backports repository.)
     (Additionally for chroot, run:
     $ mknod -m 666 /dev/fuse c 10 229)
-    $ apt-get install python3 python3-pip
+    $ apt-get install python3
     $ apt-get install locales-all
 
 Now, finally run the tests:
