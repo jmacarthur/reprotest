@@ -478,7 +478,7 @@ class TimeVariation(collections.namedtuple('_TimeVariation', 'faketimes auto_fak
                 # This tries hard to avoid bad interactions with faketime and make(1) etc.
                 # However if you're building this too soon after changing one of the source
                 # files then the effect of this variation is not very great.
-                filemtimes = (os.path.getmtime(os.path.join(root, f)) for root, dirs, files in os.walk(source_root) for f in files)
+                filemtimes = (os.lstat(os.path.join(root, f)).st_mtime for root, dirs, files in os.walk(source_root) for f in files)
                 new_faketimes.append("@%d" % int(max(filemtimes, default=0)))
             else:
                 raise ValueError("unrecognized auto_faketime: %s" % a)
