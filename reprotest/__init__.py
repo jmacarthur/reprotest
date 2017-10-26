@@ -5,6 +5,7 @@ import argparse
 import collections
 import configparser
 import contextlib
+import getpass
 import logging
 import os
 import random
@@ -75,8 +76,9 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
     # path for the correct virt-server script.
     server_path = get_server_path(args[0])
     logging.info('STARTING VIRTUAL SERVER %r', [server_path] + args[1:])
-    testbed = Testbed([server_path] + args[1:], temp_dir, None,
-            host_distro=host_distro)
+    # TODO: make the user configurable, like autopkgtest
+    testbed = Testbed([server_path] + args[1:], temp_dir,
+                      getpass.getuser(), host_distro=host_distro)
     testbed.start()
     testbed.open()
     should_clean = True
@@ -198,7 +200,13 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logging.debug("#### BEGIN REPROTEST BUILD SCRIPT ##############################################\n" +
             build_script)
         logging.debug("#### END REPROTEST BUILD SCRIPT ################################################")
-        testbed.check_exec2(['sh', '-ec', build_script],
+
+        if 'root-on-testbed' in testbed.caps:
+            build_argv = ['su', '-s', '/bin/sh', testbed.user, '-c', 'set -e; ' + build_script]
+        else:
+            build_argv = ['sh', '-ec', build_script]
+
+        testbed.check_exec2(build_argv,
             xenv=['-i'] + ['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
         logging.info("build successful, copying artifacts")
