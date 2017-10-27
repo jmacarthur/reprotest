@@ -271,8 +271,21 @@ means to vary home, time (the last given value for --variations), timezone, and
 -time (the given multiple values for --vary), i.e. home and timezone.
 
 
-Varying the domain or host
-==========================
+Notes on variations
+===================
+
+reprotest tries hard to perform variations without assuming it has full root
+access to the system. It also assumes other software may be running on the same
+system, so it does not perform system-level modifications that would affect
+other processes. Due to these assumptions, some variations are implemented
+using hacks at various levels of dirtiness, which are documented below.
+
+We will hopefully lift these assumptions for certain virtual_server contexts,
+in future. That would likely allow for smoother operation in those contexts.
+The assumptions will remain for the "null" (default) virtual_server however.
+
+Domain or host
+--------------
 
 Doing this without sudo *may* result in your build failing.
 
@@ -286,37 +299,18 @@ this in reprotest without heavy effort.
 Therefore, it is recommended to run this variation with use_sudo=1. To avoid
 password prompts, see the section "Avoid sudo(1) password prompts" below.
 
-
-Varying the user or group
-=========================
+User or group
+-------------
 
 If you also vary fileordering at the same time (this is the case by default),
 each user you use needs to be in the "fuse" group. Do that by running `usermod
 -aG fuse $OTHERUSER` as root.
 
-Avoid sudo(1) password prompts
-------------------------------
+To avoid sudo(1) password prompts, see the section "Avoid sudo(1) password
+prompts" below.
 
-There is currently no good way to do this. The following is a very brittle and
-unclean solution. You will have to decide for yourself if it's worth it for
-your use-case::
-
-    $ reprotest --print-sudoers \
-        --variations=user_group.available+=guest-builder,domain_host.use_sudo=1 \
-        | sudo EDITOR=tee visudo -f /etc/sudoers.d/local-reprotest
-
-Make sure you set the variations you actually want to use. Obviously, don't
-pick privileged users for this purpose, such as root.
-
-(Simplifying the output using wildcards, would open up passwordless access to
-chown anything on your system, because wildcards here match whitespace. I don't
-know what the sudo authors were thinking.)
-
-No, this is really not nice at all - suggestions and patches welcome.
-
-
-Varying the time
-================
+Time
+----
 
 The "time" variation uses ``faketime(1)`` which *sometimes* causes weird and
 hard-to-diagnose problems. In the past, this has included:
@@ -332,3 +326,36 @@ If you see a difference that you really think should not be there, try passing
 ``--variations=-time`` to reprotest, and/or check our results on
 https://tests.reproducible-builds.org/ which use a different (more reliable)
 mechanism to vary the system time.
+
+
+Avoid sudo(1) password prompts
+==============================
+
+There is currently no good way to do this. The following is an EXPERIMENTAL
+solution and is brittle and unclean. You will have to decide for yourself if
+it's worth it for your use-case::
+
+    $ reprotest --print-sudoers \
+        --variations=user_group.available+=guest-builder,domain_host.use_sudo=1 \
+        | sudo EDITOR=tee visudo -f /etc/sudoers.d/local-reprotest
+
+Make sure you set the variations you actually want to use. Obviously, don't
+pick privileged users for this purpose, such as root.
+
+(Simplifying the output using wildcards, would open up passwordless access to
+chown anything on your system, because wildcards here match whitespace. I don't
+know what the sudo authors were thinking.)
+
+No, this is not nice at all - suggestions and patches welcome.
+
+If you want to use this in a virtual server such as a chroot, you'll need to
+copy (or mount or otherwise map) the resulting sudoers file into your chroot.
+
+For example, for an schroot, you should (1) login to the source schroot and
+create an empty file `/etc/sudoers.d/local-reprotest` (this is important) and
+then (2) add the line:
+
+    /etc/sudoers.d/local-reprotest  /etc/sudoers.d/local-reprotest  none bind 0 0
+
+to your schroot's fstab.
+

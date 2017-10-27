@@ -561,8 +561,8 @@ def cli_parser():
         VariationSpec.default_long_string())
     group1.add_argument('--vary', metavar='VARIATIONS', default=[], action='append',
         help='Like --variations, but appends to previous --vary values '
-        'instead of overwriting them. Furthermore, the last value set for '
-        '--variations is treated implicitly as the zeroth --vary value.')
+        'instead of overwriting them. The last value set for --variations is '
+        'treated implicitly as the zeroth --vary value.')
     group1_0 = group1.add_mutually_exclusive_group()
     group1_0.add_argument('--extra-build', metavar='VARIATIONS', default=[], action='append',
         help='Perform another build with the given VARIATIONS (which may be '
