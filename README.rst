@@ -299,6 +299,9 @@ this in reprotest without heavy effort.
 Therefore, it is recommended to run this variation with use_sudo=1. To avoid
 password prompts, see the section "Avoid sudo(1) password prompts" below.
 
+Currently, neither the sudo nor non-sudo options work inside a container; give
+--vary=-domain_host if you need to run it inside one. FIXME.
+
 User or group
 -------------
 

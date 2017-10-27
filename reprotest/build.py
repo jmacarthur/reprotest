@@ -230,6 +230,10 @@ def domain_host(ctx, build, vary):
         _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
         _ = _.prepend_cleanup_exec('sudo', 'umount', ns_uts)
         # configure our unshare
+        # --root=/ is needed when running nsenter inside schroot, otherwise it defaults to the
+        # host root. But then there is a further error because /proc/self/mounts is empty.
+        # possibly it's a bug, maybe follow it up
+        # It works if we replace the below with a single "unshare (huge script)" but that's not possible to add to sudoers
         nsenter = ['sudo', 'nsenter'] + ns_args
         _ = _.append_setup_exec(*nsenter, 'hostname', hostname)
         _ = _.append_setup_exec(*nsenter, 'domainname', domainname)
@@ -238,7 +242,7 @@ def domain_host(ctx, build, vary):
             'echo "127.0.0.1 {1}" > {0}/hosts && cat /etc/hosts >> {0}/hosts'.format(build.aux_tree, hostname))
         _ = _.append_setup_exec(*nsenter, 'mount', '-B', '%s/hosts' % build.aux_tree, '/etc/hosts')
         # wrap our build command
-        _ = _.prepend_to_build_command('sudo', '-E', 'nsenter', *ns_args, *make_sudo_command(*current_user_group()))
+        _ = _.prepend_to_build_command('sudo', '-E', *(nsenter[1:]), *make_sudo_command(*current_user_group()))
     else:
         logger.warn("Not using sudo for domain_host; it is recommended. Your build may fail.")
         logger.warn("Be sure to `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` if on a Debian system.")
