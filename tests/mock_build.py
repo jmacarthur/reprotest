@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # This test can theoretically fail by producing the same
     # random bits in both runs, but it is extremely unlikely.
     if 'irreproducible' in captures:
-        output.append(binascii.b2a_hex(os.urandom(1024)))
+        output.append(binascii.b2a_hex(os.urandom(1024)).decode("utf-8"))
     # Like the above test, this test can theoretically fail by
     # producing the same file order, but this is unlikely, if not
     # as unlikely as in the above test.
