@@ -271,8 +271,8 @@ means to vary home, time (the last given value for --variations), timezone, and
 -time (the given multiple values for --vary), i.e. home and timezone.
 
 
-Varying the user or group
-=========================
+Varying the domain or host
+==========================
 
 Doing this without sudo *may* result in your build failing.
 
