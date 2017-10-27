@@ -66,4 +66,4 @@ if __name__ == '__main__':
     with open('artifact', 'w') as fp:
         for line in output:
             print(line, file=fp)
-            print(line, file=sys.stderr)
+            #print(line, file=sys.stderr)

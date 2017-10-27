@@ -203,7 +203,10 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logger.debug("#### END REPROTEST BUILD SCRIPT ################################################")
 
         if 'root-on-testbed' in testbed.caps:
-            build_argv = ['su', '-s', '/bin/sh', testbed.user, '-c', 'set -e; ' + build_script]
+            fix_path = 'export PATH=%s; ' % shlex.quote(build.env['PATH']) if 'PATH' in build.env else ''
+            build_argv = ['su', '-p', '-s', '/bin/sh', testbed.user,
+                '-c', 'set -e; ' + fix_path + build_script]
+            logger.info("su to user '%s' to run the build", testbed.user)
         else:
             build_argv = ['sh', '-ec', build_script]
 

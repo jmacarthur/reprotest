@@ -62,7 +62,7 @@ def test_simple_builds(virtual_server):
 def setup_logging(debug):
     logger = logging.getLogger()
     oldLevel = logger.getEffectiveLevel()
-    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
@@ -86,7 +86,7 @@ def setup_logging(debug):
 @pytest.mark.parametrize('captures', list(VARIATIONS.keys()))
 def test_variations(virtual_server, captures):
     expected = captures not in TEST_VARIATIONS
-    with setup_logging(True):
+    with setup_logging(False):
         check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
 
 @pytest.mark.need_builddeps
