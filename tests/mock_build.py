@@ -6,8 +6,10 @@ import binascii
 import locale
 import os
 import pathlib
+import platform
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -19,7 +21,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('captures', nargs='*',
                             help='Reproducibility properties.')
     captures = set(arg_parser.parse_args().captures)
-    output = ['']
+    output = ["mock-build: " + ", ".join(sorted(captures))]
     # This test can theoretically fail by producing the same
     # random bits in both runs, but it is extremely unlikely.
     if 'irreproducible' in captures:
@@ -28,7 +30,7 @@ if __name__ == '__main__':
     # producing the same file order, but this is unlikely, if not
     # as unlikely as in the above test.
     if 'environment' in captures:
-        output.append("\n".join(os.environ.keys()))
+        output.extend("%s=%s" % pair for pair in os.environ.items())
     if 'build_path' in captures:
         output.append(os.getcwd())
     if 'fileordering' in captures:
@@ -39,6 +41,8 @@ if __name__ == '__main__':
             for i in range(20):
                 str((test_file_order/str(i)).touch())
             output.extend(p.name for p in test_file_order.iterdir())
+    if 'domain_host' in captures:
+        output.append(platform.node())
     if 'home' in captures:
         output.append(os.path.expanduser('~'))
     if 'kernel' in captures:
@@ -59,5 +63,7 @@ if __name__ == '__main__':
             output.append(stat.filemode(test_permissions.stat().st_mode))
     else:
         os.umask(0o0022) # otherwise open() will capture the surrounding one in its file metadata
-    with open('artifact', 'w') as artifact:
-        artifact.write(''.join(output))
+    with open('artifact', 'w') as fp:
+        for line in output:
+            print(line, file=fp)
+            print(line, file=sys.stderr)
