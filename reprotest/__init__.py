@@ -24,6 +24,7 @@ from reprotest.lib import adt_testbed
 from reprotest.build import Build, VariationSpec, Variations, tool_missing
 from reprotest import environ, presets, shell_syn
 
+logger = logging.getLogger(__name__)
 
 VIRT_PREFIX = "autopkgtest-virt-"
 
@@ -75,7 +76,7 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
     # Find the location of reprotest using setuptools and then get the
     # path for the correct virt-server script.
     server_path = get_server_path(args[0])
-    logging.info('STARTING VIRTUAL SERVER %r', [server_path] + args[1:])
+    logger.info('STARTING VIRTUAL SERVER %r', [server_path] + args[1:])
     # TODO: make the user configurable, like autopkgtest
     testbed = Testbed([server_path] + args[1:], temp_dir,
                       getpass.getuser(), host_distro=host_distro)
@@ -88,7 +89,7 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian')
         pass
     except BaseException as e:
         if no_clean_on_error:
-            logging.warn("preserving temporary files in: %s", testbed.scratch)
+            logger.warn("preserving temporary files in: %s", testbed.scratch)
             should_clean = False
         raise
     finally:
@@ -170,7 +171,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
 
     def plan_variations(self, build):
         actions = self.variations.spec.actions()
-        logging.info('build "%s": %s',
+        logger.info('build "%s": %s',
             self.build_name,
             ", ".join("%s %s" % ("FIX" if not vary else "vary", v) for v, vary, action in actions))
         for v, vary, action in actions:
@@ -178,15 +179,15 @@ class BuildContext(collections.namedtuple('_BuildContext',
         return build
 
     def copydown(self, testbed):
-        logging.info("copying %s over to virtual server's %s", self.local_src, self.testbed_src)
+        logger.info("copying %s over to virtual server's %s", self.local_src, self.testbed_src)
         testbed.command('copydown', (os.path.join(self.local_src, ''), self.testbed_src))
 
     def copyup(self, testbed):
-        logging.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
+        logger.info("copying %s back from virtual server's %s", self.testbed_dist, self.local_dist)
         testbed.command('copyup', (self.testbed_dist, os.path.join(self.local_dist, '')))
 
     def run_build(self, testbed, build, old_env, artifact_pattern, testbed_build_pre, no_clean_on_error):
-        logging.info("starting build with source directory: %s, artifact pattern: %s",
+        logger.info("starting build with source directory: %s, artifact pattern: %s",
             self.testbed_src, artifact_pattern)
         # we remove existing artifacts in case the build doesn't overwrite it
         # e.g. like how make(1) sometimes works
@@ -194,12 +195,12 @@ class BuildContext(collections.namedtuple('_BuildContext',
             ['sh', '-ec', 'cd "%s" && rm -rf %s && %s' %
             (self.testbed_src, artifact_pattern, testbed_build_pre or "true")])
         build_script = build.to_script(no_clean_on_error)
-        logging.info("executing build in %s", build.tree)
-        logging.debug("#### REPROTEST BUILD ENVVARS ###################################################\n" +
+        logger.info("executing build in %s", build.tree)
+        logger.debug("#### REPROTEST BUILD ENVVARS ###################################################\n" +
             "\n".join(environ.env_diff(old_env, build.env)))
-        logging.debug("#### BEGIN REPROTEST BUILD SCRIPT ##############################################\n" +
+        logger.debug("#### BEGIN REPROTEST BUILD SCRIPT ##############################################\n" +
             build_script)
-        logging.debug("#### END REPROTEST BUILD SCRIPT ################################################")
+        logger.debug("#### END REPROTEST BUILD SCRIPT ################################################")
 
         if 'root-on-testbed' in testbed.caps:
             build_argv = ['su', '-s', '/bin/sh', testbed.user, '-c', 'set -e; ' + build_script]
@@ -209,7 +210,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
         testbed.check_exec2(build_argv,
             xenv=['-i'] + ['%s=%s' % (k, v) for k, v in build.env.items()],
             kind='build')
-        logging.info("build successful, copying artifacts")
+        logger.info("build successful, copying artifacts")
         dist_base = os.path.join(self.testbed_dist, VSRC_DIR)
         testbed.check_exec2(shell_copy_pattern(dist_base, self.testbed_src, artifact_pattern))
         # FIXME: `touch` is needed because of the FIXME in build.faketime(). we can rm it after that is fixed
@@ -229,14 +230,14 @@ def run_or_tee(progargs, filename, store_dir, *args, **kwargs):
 def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
     if diffoscope_args is None: # don't run diffoscope
         diffprogram = ['diff', '-ru', dist_0, dist_1]
-        logging.info("Running diff: %r", diffprogram)
+        logger.info("Running diff: %r", diffprogram)
     else:
         diffprogram = ['diffoscope', dist_0, dist_1] + diffoscope_args
-        logging.info("Running diffoscope: %r", diffprogram)
+        logger.info("Running diffoscope: %r", diffprogram)
 
     retcode = run_or_tee(diffprogram, 'diffoscope.out', store_dir).returncode
     if retcode == 0:
-        logging.info("No differences between %s, %s", dist_0, dist_1)
+        logger.info("No differences between %s, %s", dist_0, dist_1)
         if store_dir:
             shutil.rmtree(dist_1)
             os.symlink(os.path.basename(dist_0), dist_1)
@@ -256,11 +257,11 @@ class TestArgs(collections.namedtuple('_Test',
     def of(cls, build_command, source_root, artifact_pattern, result_dir=None,
                 source_pattern=None, no_clean_on_error=False, diffoscope_args=[]):
         artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
-        logging.debug("artifact_pattern sanitized to: %s", artifact_pattern)
+        logger.debug("artifact_pattern sanitized to: %s", artifact_pattern)
 
         if source_pattern:
             source_pattern = shell_syn.sanitize_globs(source_pattern)
-            logging.debug("source_pattern sanitized to: %s", source_pattern)
+            logger.debug("source_pattern sanitized to: %s", source_pattern)
         return cls(build_command, source_root, artifact_pattern, result_dir,
                    source_pattern, no_clean_on_error, diffoscope_args)
 
@@ -282,7 +283,7 @@ class TestArgs(collections.namedtuple('_Test',
             source_root = os.path.normpath(os.path.dirname(source_root))
         source_root = str(source_root)
 
-        logging.debug("virtual_server_args: %r", virtual_server_args)
+        logger.debug("virtual_server_args: %r", virtual_server_args)
 
         # TODO: if no_clean_on_error then this shouldn't be rm'd
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -292,7 +293,7 @@ class TestArgs(collections.namedtuple('_Test',
                 source_root = new_source_root
             if testbed_pre:
                 subprocess.check_call(["sh", "-ec", testbed_pre], cwd=new_source_root)
-            logging.debug("source_root: %s", source_root)
+            logger.debug("source_root: %s", source_root)
 
             # TODO: an alternative strategy is to run the testbed many times, one for each build
             # not sure if it's worth implementing at this stage, but perhaps in the future.
@@ -661,7 +662,7 @@ def command_line(parser, argv):
 def get_main_spec(parsed_args):
     variations = [parsed_args.variations] + parsed_args.vary
     if parsed_args.dont_vary:
-        logging.warn("--dont-vary is deprecated; use --vary=-$variation instead")
+        logger.warn("--dont-vary is deprecated; use --vary=-$variation instead")
         variations += ["-%s" % a for x in parsed_args.dont_vary for a in x.split(",")]
     return VariationSpec().extend(variations)
 
@@ -679,7 +680,7 @@ def run(argv, dry_run=None):
     verbosity = parsed_args.verbosity
     adtlog.verbosity = verbosity - 1
     logging.basicConfig(level=30-10*verbosity)
-    logging.debug('%r', parsed_args)
+    logger.debug('%r', parsed_args)
 
     if not dry_run and parsed_args.print_sudoers:
         build.print_sudoers(get_main_spec(parsed_args))
@@ -703,9 +704,9 @@ def run(argv, dry_run=None):
         elif first_arg == "auto":
             build_command = first_arg
             if parsed_args.artifact_pattern:
-                logging.warn("old CLI form `reprotest auto <source_root>` detected, "
+                logger.warn("old CLI form `reprotest auto <source_root>` detected, "
                     "setting source_root to the second argument: %s", parsed_args.artifact_pattern)
-                logging.warn("to avoid this warning, use instead `reprotest <source_root>` "
+                logger.warn("to avoid this warning, use instead `reprotest <source_root>` "
                     "or (if really necessary) `reprotest -s <source_root> auto <artifact>`")
                 source_root = parsed_args.artifact_pattern
                 parsed_args.artifact_pattern = None
@@ -715,7 +716,7 @@ def run(argv, dry_run=None):
             parts = shlex.split(first_arg)
             if len(parts) == 1:
                 if shutil.which(parts[0]) is None:
-                    logging.warn("XXX")
+                    logger.warn("XXX")
                     raise RuntimeError("Not found, neither as a file nor as a command: %s" % first_arg)
             # if len(parts) > 1 then it could be something like '( command )'
             # which is valid despite '(' not existing.
@@ -741,7 +742,7 @@ def run(argv, dry_run=None):
         auto_preset_expr = parsed_args.auto_preset_expr
         values = presets.get_presets(source_root, virtual_server_args[0])
         values = eval(auto_preset_expr, {'_': values}, {})
-        logging.info("preset auto-selected: %r", values)
+        logger.info("preset auto-selected: %r", values)
         build_command = values.build_command
         artifact_pattern = artifact_pattern or values.artifact_pattern
         testbed_pre = testbed_pre or values.testbed_pre
@@ -773,10 +774,10 @@ def run(argv, dry_run=None):
         missing = [(var, tools) for var, tools in missing if tools]
         for var, tools in missing:
             if tools:
-                logging.warn("Varying '%s' requires these program(s): %s", var, ", ".join(tools))
+                logger.warn("Varying '%s' requires these program(s): %s", var, ", ".join(tools))
         if missing:
-            logging.warn("Your build will probably fail, either install them or disable the variations.")
-            logging.warn("(From a system package manager, simply install the 'optional' or 'recommended' "
+            logger.warn("Your build will probably fail, either install them or disable the variations.")
+            logger.warn("(From a system package manager, simply install the 'optional' or 'recommended' "
                          "dependencies of reprotest.)")
 
     # Remaining args

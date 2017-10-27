@@ -1,6 +1,8 @@
 # Licensed under the GPL: https://www.gnu.org/licenses/gpl-3.0.en.html
 # For details: reprotest/debian/copyright
 
+import contextlib
+import logging
 import os
 import subprocess
 import sys
@@ -56,11 +58,36 @@ def test_simple_builds(virtual_server):
         check_reproducibility('python3 mock_failure.py', virtual_server)
     check_reproducibility('python3 mock_build.py irreproducible', virtual_server, False)
 
+@contextlib.contextmanager
+def setup_logging(debug):
+    logger = logging.getLogger()
+    oldLevel = logger.getEffectiveLevel()
+    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    logger.addHandler(ch)
+
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname).1s: %(name)s: %(message)s',
+        '%Y-%m-%d %H:%M:%S',
+    )
+    ch.setFormatter(formatter)
+    try:
+        yield logger
+    finally:
+        # restore old logging settings. this helps pytest not spew out errors
+        # like "ValueError: I/O operation on closed file", see
+        # https://github.com/pytest-dev/pytest/issues/14#issuecomment-272243656
+        logger.removeHandler(ch)
+        logger.setLevel(oldLevel)
+
 # TODO: test all variations that we support
 @pytest.mark.parametrize('captures', list(VARIATIONS.keys()))
 def test_variations(virtual_server, captures):
     expected = captures not in TEST_VARIATIONS
-    check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
+    with setup_logging(True):
+        check_reproducibility('python3 mock_build.py ' + captures, virtual_server, expected)
 
 @pytest.mark.need_builddeps
 def test_self_build(virtual_server):

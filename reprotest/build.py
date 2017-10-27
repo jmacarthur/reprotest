@@ -18,6 +18,8 @@ from reprotest import mdiffconf
 from reprotest import shell_syn
 from reprotest.utils import AttributeReplacer
 
+logger = logging.getLogger(__name__)
+
 
 def tool_required(*tools):
     def wrap(f):
@@ -238,10 +240,10 @@ def domain_host(ctx, build, vary):
         # wrap our build command
         _ = _.prepend_to_build_command('sudo', '-E', 'nsenter', *ns_args, *make_sudo_command(*current_user_group()))
     else:
-        logging.warn("Not using sudo for domain_host; it is recommended. Your build may fail.")
-        logging.warn("Be sure to `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` if on a Debian system.")
+        logger.warn("Not using sudo for domain_host; it is recommended. Your build may fail.")
+        logger.warn("Be sure to `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` if on a Debian system.")
         if "user_group" in ctx.spec and ctx.spec.user_group.available:
-            logging.error("Incompatible variations: domain_host.use_sudo False, user_group.available non-empty.")
+            logger.error("Incompatible variations: domain_host.use_sudo False, user_group.available non-empty.")
             raise ValueError("Incompatible variations; check the log for details.")
         _ = _.prepend_to_build_command(*"unshare -r --uts".split(),
             "sh", "-ec", r"""
@@ -405,7 +407,7 @@ def user_group(ctx, build, vary):
         return build
 
     if not ctx.spec.user_group.available:
-        logging.warn("IGNORING user_group variation; supply more usergroups "
+        logger.warn("IGNORING user_group variation; supply more usergroups "
         "with --variations=user_group.available+=USER1:GROUP1;USER2:GROUP2 or "
         "alternatively, suppress this warning with --variations=-user_group")
         return build
@@ -565,8 +567,8 @@ class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
 
 
 def print_sudoers(spec):
-    logging.warn("This feature is EXPERIMENTAL, use at your own risk.")
-    logging.warn("The output may be out-of-date, please file bugs if it doesn't work...")
+    logger.warn("This feature is EXPERIMENTAL, use at your own risk.")
+    logger.warn("The output may be out-of-date, please file bugs if it doesn't work...")
 
     user, group = current_user_group()
     a = "[a-zA-Z0-9]"
