@@ -22,6 +22,7 @@ setup(name='reprotest',
       install_requires=[
           'diffoscope',
           'rstr',
+          'distro',
           ],
       classifiers=[
           'Development Status :: 3 - Alpha',
