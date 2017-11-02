@@ -50,10 +50,27 @@ timeouts = {'short': 100, 'copy': 300, 'install': 3000, 'test': 10000,
             'build': 100000}
 
 
+def os_release():
+    os_release = dict()
+
+    try:
+        with open('/etc/os-release') as f:
+            for line in f:
+                try:
+                    key, value = line.strip().split('=', 1)
+                    os_release[key] = value.strip('\'\"')
+                except ValueError:
+                    pass
+    except:
+        adtlog.warning("Could not load /etc/os-release")
+
+    return os_release
+
+
 class Testbed:
     def __init__(self, vserver_argv, output_dir, user,
                  setup_commands=[], setup_commands_boot=[], add_apt_pockets=[],
-                 copy_files=[], host_distro='debian'):
+                 copy_files=[], host_distro=None):
         self.sp = None
         self.lastsend = None
         self.scratch = None
@@ -88,6 +105,10 @@ class Testbed:
         except AttributeError:
             self.devnull = open(os.devnull, 'rb')
 
+
+        if not host_distro:
+            host_distro = os_release().get('ID')
+            adtlog.info("Tried distro auto-detection, got %r" % host_distro)
 
         if host_distro in SYSTEM_INTERFACES:
             self.system_interface = SYSTEM_INTERFACES[host_distro]()
