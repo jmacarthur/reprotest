@@ -325,6 +325,11 @@ hard-to-diagnose problems. In the past, this has included:
   producing different results with and without faketime. This still affects
   bash and probably certain other packages using autotools.
 
+- builds accessing the network failing due to certificate expiration errors
+  and/or other time-related security errors. (Transparent builds of FOSS should
+  not access the network in the first place, but it's outside of reprotest's
+  scope to audit or prevent this.)
+
 If you see a difference that you really think should not be there, try passing
 ``--variations=-time`` to reprotest, and/or check our results on
 https://tests.reproducible-builds.org/ which use a different (more reliable)
