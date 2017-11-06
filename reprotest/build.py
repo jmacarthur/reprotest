@@ -577,34 +577,42 @@ def print_sudoers(spec):
     user, group = current_user_group()
     a = "[a-zA-Z0-9]"
     b = "/tmp/reprotest.{0}{0}{0}{0}{0}{0}".format(a)
-    bx = os.path.join(b, "build-experiment-[1-9]")
     variables = {
         "user": user,
         "group": group,
         "base": b,
-        "base_ex": bx,
     }
+    experiments = [os.path.join(b, x) for x in [
+        "build-experiment-[1-9]",
+        "build-experiment-[1-9][0-9]",
+        "build-experiment-blacklist",
+        "build-experiment-non-whitelist",
+    ]]
 
     if "user_group" in spec and spec.user_group.available:
         user_groups = [parse_user_group(user_group) for user_group in spec.user_group.available]
         users = sorted(set(user for user, group in user_groups if user))
         for otheruser in users:
+            newvars = dict(**variables, otheruser=otheruser)
             print("""\
 # Rules for varying user_group with user %(otheruser)s
 %(user)s ALL = (%(otheruser)s) NOPASSWD: ALL
 %(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base)s/const_build_path/
+%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base)s/const_build_path/
+""".rstrip() % newvars)
+            for base_ex in experiments:
+                print("""\
 %(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base_ex)s/
 %(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(otheruser)s %(user)s %(base_ex)s-before-disorderfs/
-%(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base)s/const_build_path/
 %(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base_ex)s/
 %(user)s ALL = NOPASSWD: /bin/chown -h -R --from=%(user)s %(otheruser)s %(base_ex)s-before-disorderfs/
-""" % dict(**variables, **{
-        "otheruser": otheruser
-    }))
+""".rstrip() % dict(**newvars, base_ex=base_ex))
+            print()
 
     if "domain_host" in spec and spec.domain_host.use_sudo:
-        print("""\
-# Rules for varying domain_host
+        print("""# Rules for varying domain_host""")
+        for base_ex in experiments:
+            print("""\
 %(user)s ALL = NOPASSWD: /bin/mount -B %(base_ex)s-aux/ns-mnt %(base_ex)s-aux/ns-mnt
 %(user)s ALL = NOPASSWD: /bin/mount --make-private %(base_ex)s-aux/ns-mnt
 %(user)s ALL = NOPASSWD: /usr/bin/unshare --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts true
@@ -614,7 +622,8 @@ def print_sudoers(spec):
 %(user)s ALL = NOPASSWD:SETENV: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts sudo -E -u %(user)s -g %(group)s env *
 %(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-mnt
 %(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-uts
-""" % variables)
+""".rstrip() % dict(**variables, base_ex=base_ex))
+        print()
 
 
 if __name__ == "__main__":
