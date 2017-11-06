@@ -230,10 +230,8 @@ def domain_host(ctx, build, vary):
         _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
         _ = _.prepend_cleanup_exec('sudo', 'umount', ns_uts)
         # configure our unshare
-        # --root=/ is needed when running nsenter inside schroot, otherwise it defaults to the
-        # host root. But then there is a further error because /proc/self/mounts is empty.
-        # possibly it's a bug, maybe follow it up
-        # It works if we replace the below with a single "unshare (huge script)" but that's not possible to add to sudoers
+        # FIXME: this does not work in nsenter due to a bug, upstream is working on a fix
+        # https://www.spinics.net/lists/util-linux-ng/msg14759.html
         nsenter = ['sudo', 'nsenter'] + ns_args
         _ = _.append_setup_exec(*nsenter, 'hostname', hostname)
         _ = _.append_setup_exec(*nsenter, 'domainname', domainname)
