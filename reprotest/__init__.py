@@ -70,7 +70,7 @@ class Testbed(adt_testbed.Testbed):
         raise _type(m)
 
 @contextlib.contextmanager
-def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro='debian'):
+def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro=None):
     '''This is a simple wrapper around adt_testbed that automates the
     initialization and cleanup.'''
     # Find the location of reprotest using setuptools and then get the
@@ -251,7 +251,7 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
 class TestbedArgs(collections.namedtuple('_TestbedArgs',
     'virtual_server_args testbed_pre testbed_init testbed_build_pre host_distro')):
     @classmethod
-    def of(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, testbed_build_pre=None, host_distro='debian'):
+    def of(cls, virtual_server_args=[], testbed_pre=None, testbed_init=None, testbed_build_pre=None, host_distro=None):
         return cls(virtual_server_args, testbed_pre, testbed_init, testbed_build_pre, host_distro)
 
 
@@ -535,7 +535,7 @@ def cli_parser():
         help='An integer.  Control which messages are displayed.')
     group1.add_argument('-v', '--verbose', dest='verbosity', action='count',
         help='Like --verbosity, but given multiple times without arguments.')
-    group1.add_argument('--host-distro', default='debian',
+    group1.add_argument('--host-distro', default=None,
         help='The distribution that will run the tests (Default: %(default)s)')
     group1.add_argument('-s', '--source-root', default=None, metavar='PATH',
         help='Root of the source tree, that is copied to the virtual server '
