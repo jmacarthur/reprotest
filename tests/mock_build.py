@@ -29,6 +29,8 @@ if __name__ == '__main__':
     # Like the above test, this test can theoretically fail by
     # producing the same file order, but this is unlikely, if not
     # as unlikely as in the above test.
+    if 'aslr' in captures:
+        output.append(id(__name__))
     if 'environment' in captures:
         output.extend("%s=%s" % pair for pair in os.environ.items())
     if 'build_path' in captures:

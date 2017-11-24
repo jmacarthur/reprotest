@@ -104,8 +104,11 @@ class Build(collections.namedtuple('_Build', 'build_command setup cleanup env tr
 
     def prepend_to_build_command(self, *prefix):
         '''Prepend a wrapper command onto the build_command.'''
+        return self.prepend_to_build_command_raw(*map(shlex.quote, prefix))
+
+    def prepend_to_build_command_raw(self, *prefix):
         new_command = shell_syn.Command(
-            cmd_prefix=shell_syn.CmdPrefix(map(shlex.quote, prefix)),
+            cmd_prefix=shell_syn.CmdPrefix(prefix),
             cmd_suffix=self.build_command)
         return self._replace(build_command=new_command)
 
@@ -283,14 +286,19 @@ def home(ctx, build, vary):
 # reference to a setname command on another Unix variant:
 # https://en.wikipedia.org/wiki/Uname
 def kernel(ctx, build, vary):
-    # set these two explicitly different. otherwise, when reprotest is
-    # reprotesting itself, then one of the builds will fail its tests, because
-    # its two child reprotests will see the same value for "uname" but the
-    # tests expect different values.
+    _ = build
     if not vary:
-        return build.prepend_to_build_command('linux64', '--uname-2.6')
+        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(arch)')
     else:
-        return build.prepend_to_build_command('linux32')
+        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(setarch --list | grep -vF "$(arch)" | shuf | head -n1)')
+        _ = _.append_setup_exec_raw('KERNEL_VERSION=$(uname -r)')
+        _ = _.append_setup_exec_raw('if [ ${KERNEL_VERSION#2.6} = $KERNEL_VERSION ]; then SETARCH_OPTS=--uname-2.6; fi')
+    return _.prepend_to_build_command_raw('setarch', '$SETARCH_ARCH', '$SETARCH_OPTS')
+
+def aslr(ctx, build, vary):
+    if vary:
+        return build
+    return build.append_setup_exec_raw('SETARCH_OPTS="$SETARCH_OPTS -R"')
 
 # TODO: if this locale doesn't exist on the system, Python's
 # locales.getlocale() will return (None, None) rather than this
@@ -440,12 +448,15 @@ def user_group(ctx, build, vary):
 VARIATIONS = collections.OrderedDict([
     ('environment', environment),
     ('build_path', build_path),
+    ('kernel', kernel),
+    ('aslr', aslr), # needs to run after kernel which runs "setarch"
+                    # but also as close to the build command as possible, (i.e. earlier in this list)
+                    # otherwise other variations below can affect the address layout
     ('user_group', user_group),
     # ('cpu', cpu),
     ('fileordering', fileordering),
     ('domain_host', domain_host), # needs to run after all other mounts have been set
     ('home', home),
-    ('kernel', kernel),
     ('locales', locales),
     # ('namespace', namespace),
     ('exec_path', exec_path),

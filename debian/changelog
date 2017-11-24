@@ -1,7 +1,7 @@
 reprotest (0.7.4) UNRELEASED; urgency=medium
 
   * Hopefully fix the autopkgtest tests.
-  * Add a domain_host variation.
+  * Add aslr and domain_host variations.
   * Add a --print-sudoers feature.
   * Properly drop privs when running the build. (Closes: #877813)
 
