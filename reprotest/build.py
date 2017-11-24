@@ -218,31 +218,20 @@ def domain_host(ctx, build, vary):
 
     # TODO: below only works on linux, of course..
     if ctx.spec.domain_host.use_sudo:
-        ns_uts, ns_mnt = ('%s/ns-%s' % (build.aux_tree, ns) for ns in ("uts", "mnt"))
-        _ = _.append_setup_exec('touch', ns_mnt, ns_uts)
-        # make ns_mnt have propagation=private, required for --mount=$ns_mnt
-        _ = _.append_setup_exec('sudo', 'mount', '-B', ns_mnt, ns_mnt)
-        _ = _.append_setup_exec('sudo', 'mount', '--make-private', ns_mnt)
-        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
+        ns_uts = '%s/ns-%s' % (build.aux_tree, "uts")
+        _ = _.append_setup_exec('touch', ns_uts)
         # create our unshare
-        ns_args = ['--mount=%s' % ns_mnt, '--uts=%s' % ns_uts]
-        _ = _.append_setup_exec('sudo', 'unshare', *ns_args, 'true')
-        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_mnt)
-        _ = _.prepend_cleanup_exec('sudo', 'umount', ns_uts)
+        ns_args = ['--uts=%s' % ns_uts]
+        _ = _.append_setup_exec(*SUDO, 'unshare', *ns_args, 'true')
+        _ = _.prepend_cleanup_exec(*SUDO, 'umount', ns_uts)
         # configure our unshare
-        # FIXME: this does not work in nsenter due to a bug, upstream is working on a fix
-        # https://www.spinics.net/lists/util-linux-ng/msg14759.html
-        nsenter = ['sudo', 'nsenter'] + ns_args
+        nsenter = SUDO + ['nsenter'] + ns_args
         _ = _.append_setup_exec(*nsenter, 'hostname', hostname)
         _ = _.append_setup_exec(*nsenter, 'domainname', domainname)
-        # the mount -B hack suppresses spurious sudo(1) warnings about "unable to resolve host"
-        _ = _.append_setup_exec('sh', '-ec',
-            'echo "127.0.0.1 {1}" > {0}/hosts && cat /etc/hosts >> {0}/hosts'.format(build.aux_tree, hostname))
-        _ = _.append_setup_exec(*nsenter, 'mount', '-B', '%s/hosts' % build.aux_tree, '/etc/hosts')
         # wrap our build command
-        _ = _.prepend_to_build_command('sudo', '-E', *(nsenter[1:]), *make_sudo_command(*current_user_group()))
+        _ = _.prepend_to_build_command(*SUDO, '-E', *(nsenter[len(SUDO):]), *make_sudo_command(*current_user_group()))
     else:
-        logger.warn("Not using sudo for domain_host; it is recommended. Your build may fail.")
+        logger.warn("Not using sudo for domain_host; your build may fail. See man page for other options.")
         logger.warn("Be sure to `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` if on a Debian system.")
         if "user_group" in ctx.spec and ctx.spec.user_group.available:
             logger.error("Incompatible variations: domain_host.use_sudo False, user_group.available non-empty.")
@@ -382,11 +371,13 @@ def current_user_group():
     return getpass.getuser(), grp.getgrgid(os.getgid()).gr_name
 
 
+SUDO = ['sudo', '-h', 'localhost']
+
 def make_sudo_command(user, group):
     assert user or group
     userarg = ['-u', user] if user else []
     grouparg = ['-g', group] if group else []
-    return ['sudo', '-E'] + userarg + grouparg + ['env',
+    return SUDO + ['-E'] + userarg + grouparg + ['env',
         '-u', 'SUDO_COMMAND', '-u', 'SUDO_GID', '-u', 'SUDO_UID', '-u', 'SUDO_USER']
 
 def parse_user_group(user_group):
@@ -585,7 +576,7 @@ def print_sudoers(spec):
         "build-experiment-[1-9][0-9]",
         "build-experiment-blacklist",
         "build-experiment-non-whitelist",
-    ]]
+    ] + ["build-experiment-%s" % k for k in VariationSpec.all_names()]]
 
     if "user_group" in spec and spec.user_group.available:
         user_groups = [parse_user_group(user_group) for user_group in spec.user_group.available]
@@ -611,14 +602,10 @@ def print_sudoers(spec):
         print("""# Rules for varying domain_host""")
         for base_ex in experiments:
             print("""\
-%(user)s ALL = NOPASSWD: /bin/mount -B %(base_ex)s-aux/ns-mnt %(base_ex)s-aux/ns-mnt
-%(user)s ALL = NOPASSWD: /bin/mount --make-private %(base_ex)s-aux/ns-mnt
-%(user)s ALL = NOPASSWD: /usr/bin/unshare --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts true
-%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts hostname reprotest-*
-%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts domainname reprotest-*
-%(user)s ALL = NOPASSWD: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts mount -B %(base_ex)s-aux/hosts /etc/hosts
-%(user)s ALL = NOPASSWD:SETENV: /usr/bin/nsenter --mount=%(base_ex)s-aux/ns-mnt --uts=%(base_ex)s-aux/ns-uts sudo -E -u %(user)s -g %(group)s env *
-%(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-mnt
+%(user)s ALL = NOPASSWD: /usr/bin/unshare --uts=%(base_ex)s-aux/ns-uts true
+%(user)s ALL = NOPASSWD: /usr/bin/nsenter --uts=%(base_ex)s-aux/ns-uts hostname reprotest-*
+%(user)s ALL = NOPASSWD: /usr/bin/nsenter --uts=%(base_ex)s-aux/ns-uts domainname reprotest-*
+%(user)s ALL = NOPASSWD:SETENV: /usr/bin/nsenter --uts=%(base_ex)s-aux/ns-uts sudo -h localhost -E -u %(user)s -g %(group)s env *
 %(user)s ALL = NOPASSWD: /bin/umount %(base_ex)s-aux/ns-uts
 """.rstrip() % dict(**variables, base_ex=base_ex))
         print()
