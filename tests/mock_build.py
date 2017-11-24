@@ -49,6 +49,8 @@ if __name__ == '__main__':
         output.append(os.path.expanduser('~'))
     if 'kernel' in captures:
         output.append(subprocess.check_output(['uname', '-r']).decode("utf-8"))
+    if 'num_cpus' in captures:
+        output.append(subprocess.check_output(['nproc']).decode("utf-8"))
     if 'locales' in captures:
         output.extend(l or '(None)' for l in locale.getlocale())
         output.append(subprocess.check_output(['locale']).decode("utf-8"))

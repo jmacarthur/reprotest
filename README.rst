@@ -284,6 +284,14 @@ We will hopefully lift these assumptions for certain virtual_server contexts,
 in future. That would likely allow for smoother operation in those contexts.
 The assumptions will remain for the "null" (default) virtual_server however.
 
+Number of CPUs
+--------------
+
+The control build uses only 1 CPU in order to try to reduce nondeterminism that
+might exist due to multithreading or multiprocessing. If you are sure your
+build is not affected by this (and good builds ought not to be), you can give
+--min-cpus=99999 to use all available cores for both builds.
+
 Domain or host
 --------------
 

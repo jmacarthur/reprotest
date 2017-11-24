@@ -581,6 +581,8 @@ def cli_parser():
         'whitelist and blacklist. You probably want to set --vary=-all as well '
         'when setting this flag; see the man page for details. Conflicts with '
         '--extra-build and --auto-build.')
+    group1_0.add_argument('--min-cpus', default=1, type=int, metavar='NUM',
+        help='Minimum CPUs to use when fixing num_cpus. Default: %(default)s')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
 
@@ -767,7 +769,7 @@ def run(argv, dry_run=None):
         for extra_build in parsed_args.extra_build:
             specs.append(spec.extend(extra_build))
         check_func = check
-    build_variations = Variations.of(*specs, verbosity=verbosity)
+    build_variations = Variations.of(*specs, verbosity=verbosity, min_cpus=parsed_args.min_cpus)
 
     # Warn about missing programs
     if virtual_server_args[0] == "null" and not dry_run:

@@ -300,6 +300,24 @@ def aslr(ctx, build, vary):
         return build
     return build.append_setup_exec_raw('SETARCH_OPTS="$SETARCH_OPTS -R"')
 
+def num_cpus(ctx, build, vary):
+    _ = build
+    _ = _.append_setup_exec_raw('CPU_MAX=$(nproc --all)')
+    _ = _.append_setup_exec_raw('CPU_MIN=$({ echo $CPU_MAX; echo %s; } | sort -n | head -n1)' % ctx.min_cpus)
+    if ctx.min_cpus <= 0:
+        raise ValueError("--min-cpus must be a positive integer: " % ctx.min_cpus)
+    if not vary:
+        if ctx.min_cpus == 1:
+            logger.warn("The control build runs on 1 CPU by default, give --min-cpus to increase this.")
+        _ = _.append_setup_exec_raw('CPU_NUM=$CPU_MIN')
+    else:
+        # random number between min_cpus and $(nproc --all)
+        _ = _.append_setup_exec_raw('CPU_NUM=$(shuf -i$CPU_MIN-$CPU_MAX -n1)')
+
+    # select CPU_NUM random cpus from the range 0..$((CPU_MAX-1))
+    cpu_list = "$(echo $(shuf -i0-$((CPU_MAX - 1)) -n$CPU_NUM) | tr ' ' ,)"
+    return _.prepend_to_build_command_raw('taskset', '-a', '-c', cpu_list)
+
 # TODO: if this locale doesn't exist on the system, Python's
 # locales.getlocale() will return (None, None) rather than this
 # locale.  I imagine it will also probably cause false positives with
@@ -452,6 +470,7 @@ VARIATIONS = collections.OrderedDict([
     ('aslr', aslr), # needs to run after kernel which runs "setarch"
                     # but also as close to the build command as possible, (i.e. earlier in this list)
                     # otherwise other variations below can affect the address layout
+    ('num_cpus', num_cpus),
     ('user_group', user_group),
     # ('cpu', cpu),
     ('fileordering', fileordering),
@@ -560,10 +579,10 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
         })
 
 
-class Variations(collections.namedtuple('_Variations', 'spec verbosity')):
+class Variations(collections.namedtuple('_Variations', 'spec verbosity min_cpus')):
     @classmethod
-    def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0):
-        return [cls(spec, verbosity) for spec in [zero] + list(specs)]
+    def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0, min_cpus=1):
+        return [cls(spec, verbosity, min_cpus) for spec in [zero] + list(specs)]
 
     @property
     def replace(self):
