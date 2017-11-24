@@ -397,6 +397,8 @@ def current_user_group():
     return getpass.getuser(), grp.getgrgid(os.getgid()).gr_name
 
 
+# -h localhost otherwise we get annoying messages about "can't resolve host"
+# especially when doing the domain_host variation
 SUDO = ['sudo', '-h', 'localhost']
 
 def make_sudo_command(user, group):
