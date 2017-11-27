@@ -580,7 +580,7 @@ def cli_parser():
         'whitelist and blacklist. You probably want to set --vary=-all as well '
         'when setting this flag; see the man page for details. Conflicts with '
         '--extra-build and --auto-build.')
-    group1_0.add_argument('--min-cpus', default=None, type=int, metavar='NUM',
+    group1.add_argument('--min-cpus', default=None, type=int, metavar='NUM',
         help='Minimum CPUs to use when fixing num_cpus. Default: 1.')
     # TODO: remove after reprotest 0.8
     group1.add_argument('--dont-vary', default=[], action='append', help=argparse.SUPPRESS)
