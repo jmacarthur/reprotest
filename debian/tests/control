@@ -2,4 +2,4 @@ Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group,domain_host py
 Depends: @, python3-pytest, faketime, locales-all
 
 Test-Command: env REPROTEST_TEST_DONTVARY=fileordering,user_group,domain_host pytest-3 -m "need_builddeps"
-Depends: @builddeps@
+Depends: @, @builddeps@

@@ -23,11 +23,13 @@ override_dh_auto_build:
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+ifeq (,$(filter nocheck,$(DEB_BUILD_PROFILES)))
 	VIRTUALENV_DOWNLOAD=no \
 	http_proxy=http://127.0.9.1:9 \
 	https_proxy=https://127.0.9.1:9 \
 	TOX_TESTENV_PASSENV=PYTHONIOENCODING PYTHONIOENCODING=utf-8 \
 	tox -r --sitepackages -- -s
+endif
 endif
 
 override_dh_auto_clean:
