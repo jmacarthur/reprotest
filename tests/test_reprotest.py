@@ -11,7 +11,7 @@ import pytest
 import reprotest
 from reprotest.build import VariationSpec, Variations, VARIATIONS
 
-REPROTEST = [sys.executable, "-m", "reprotest", "--no-diffoscope"]
+REPROTEST = [sys.executable, "-m", "reprotest", "--no-diffoscope", "--min-cpus", "1"]
 REPROTEST_TEST_SERVERS = os.getenv("REPROTEST_TEST_SERVERS", "null").split(",")
 REPROTEST_TEST_DONTVARY = os.getenv("REPROTEST_TEST_DONTVARY", "").split(",")
 

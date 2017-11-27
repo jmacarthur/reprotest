@@ -307,8 +307,6 @@ def num_cpus(ctx, build, vary):
     if ctx.min_cpus <= 0:
         raise ValueError("--min-cpus must be a positive integer: " % ctx.min_cpus)
     if not vary:
-        if ctx.min_cpus == 1:
-            logger.warn("The control build runs on 1 CPU by default, give --min-cpus to increase this.")
         _ = _.append_setup_exec_raw('CPU_NUM=$CPU_MIN')
     else:
         # random number between min_cpus and $(nproc --all)
