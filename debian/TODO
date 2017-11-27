@@ -1,7 +1,3 @@
---no-clean-on-error leaves detached autopkgtest-virt-* processes around,
-amongst other things. either fix, or warn about it.
-
-
 Make the CLI nicer
 ==================
 

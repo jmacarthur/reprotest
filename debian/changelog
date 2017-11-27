@@ -6,6 +6,7 @@ reprotest (0.7.4) UNRELEASED; urgency=medium
   * Properly drop privs when running the build. (Closes: #877813)
   * Fix the time variation to actually make the time constant. This drops the
     time.auto_faketimes variation-spec option.
+  * Make --no-clean-on-error a bit more reliable.
 
  -- Ximin Luo <infinity0@debian.org>  Fri, 20 Oct 2017 12:33:21 +0200
 

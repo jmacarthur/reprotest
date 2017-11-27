@@ -77,6 +77,8 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro=None):
     # path for the correct virt-server script.
     server_path = get_server_path(args[0])
     logger.info('STARTING VIRTUAL SERVER %r', [server_path] + args[1:])
+    if no_clean_on_error:
+        os.environ["REPROTEST_NO_CLEAN_ON_ERROR"] = "1"
     # TODO: make the user configurable, like autopkgtest
     testbed = Testbed([server_path] + args[1:], temp_dir,
                       getpass.getuser(), host_distro=host_distro)
@@ -94,9 +96,11 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro=None):
         raise
     finally:
         if should_clean:
-            # TODO: we could probably do *some* level of cleanup even if
-            # should_clean is False; investigate this further...
             testbed.stop()
+        else:
+            # give VirtSubproc a command it doesn't recognise, to force a non-zero Quit
+            # a bit hacky, but it works...
+            testbed.send('quit_with_error')
 
 
 # put build artifacts in ${dist}/source-root, to support tools that put artifacts in ..
@@ -615,8 +619,8 @@ def cli_parser():
         'expression. Default: %(default)s')
     group3.add_argument('--no-clean-on-error', action='store_true', default=False,
         help='Don\'t clean the virtual_server if there was an error. '
-        'Useful for debugging, but WARNING: this is currently not '
-        'implemented very well and may leave cruft on your system.')
+        'Useful for debugging but will leave cruft on your system depending on '
+        'the virtual_server used; we hint about some but there may be others.')
     group3.add_argument('--dry-run', action='store_true', default=False,
         help='Don\'t run the builds, just print what would happen.')
     group3.add_argument('--print-sudoers', action='store_true', default=False,

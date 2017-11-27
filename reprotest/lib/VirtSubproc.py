@@ -674,11 +674,14 @@ def cleanup():
         downtmp = None
 
 
-def error_cleanup():
+def error_cleanup(q=None):
     try:
         ok = False
         try:
-            cleanup()
+            if (q and not q.ec) or os.getenv("REPROTEST_NO_CLEAN_ON_ERROR", "") != "1":
+                cleanup()
+            else:
+                sys.stderr.write('Not cleaning up because REPROTEST_NO_CLEAN_ON_ERROR=1\n')
             ok = True
         except Quit as q:
             sys.stderr.write(q.m)
@@ -716,7 +719,7 @@ def mainloop():
         while True:
             command()
     except Quit as q:
-        error_cleanup()
+        error_cleanup(q)
         if q.m:
             sys.stderr.write(q.m)
             sys.stderr.write('\n')
