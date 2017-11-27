@@ -356,20 +356,27 @@ def timezone(ctx, build, vary):
 @tool_required("faketime")
 def faketime(ctx, build, vary):
     if not vary:
-        # FIXME: this does not actually fix the time, it just lets the system clock run normally
-        return build
-    lastmt = random.choice(ctx.spec.time.faketimes)
-    now = time.time()
-    # FIXME: better way of choosing which faketime to use
-    if lastmt.startswith("@") and int(lastmt[1:]) < now - 32253180:
-        # if lastmt is far in the past, use that, it's a bit safer
-        faket = lastmt
+        # fix the time at base_faketime
+        faket = ctx.base_faketime
+    elif ctx.spec.time.faketimes:
+        faket = random.choice(ctx.spec.time.faketimes)
     else:
-        # otherwise use a date far in the future
-        faket = '+373days+7hours+13minutes'
+        now = time.time()
+        base = int(ctx.base_faketime[1:]) if ctx.base_faketime.startswith("@") else now
+        # 15552000 = 180 days
+        if base < now - 15552000 and not random.randint(0, 1):
+            # if ctx.base_faketime is far in the past, with 1/2 probability
+            # reuse the current time and don't fake it
+            return build
+        else:
+            # otherwise use a date far in the future
+            faket = '+%sdays+%shours+%sminutes' % (
+                random.randint(180, 540), random.randint(0, 23), random.randint(0, 59))
+
     # faketime's manpages are stupidly misleading; it also modifies file timestamps.
     # this is only mentioned in the README. we do not want this, it really really
     # messes with GNU make and other buildsystems that look at timestamps.
+    # set NO_FAKE_STAT=1 avoids this.
     return build.add_env('NO_FAKE_STAT', '1').prepend_to_build_command('faketime', faket)
 
 def umask(ctx, build, vary):
@@ -459,6 +466,7 @@ VARIATIONS = collections.OrderedDict([
                     # but also as close to the build command as possible, (i.e. earlier in this list)
                     # otherwise other variations below can affect the address layout
     ('num_cpus', num_cpus),
+    ('time', faketime), # needs to go before sudo (user_group), closer to the build command
     ('user_group', user_group),
     ('fileordering', fileordering),
     ('domain_host', domain_host), # needs to run after all other mounts have been set
@@ -467,10 +475,20 @@ VARIATIONS = collections.OrderedDict([
     # ('namespace', namespace),
     ('exec_path', exec_path),
     # ('shell', shell),
-    ('time', faketime),
     ('timezone', timezone),
     ('umask', umask),
 ])
+
+
+def auto_source_date_epoch(source_root):
+    # Get the latest modification date of all the files in the source root.
+    # This tries hard to avoid bad interactions with faketime and make(1) etc.
+    # However if you're building this too soon after changing one of the source
+    # files then the effect of this variation is not very great.
+    filemtimes = (os.lstat(os.path.join(root, f)).st_mtime
+                  for root, dirs, files in os.walk(source_root)
+                  for f in files)
+    return int(max(filemtimes, default=1))
 
 
 class TimeVariation(collections.namedtuple('_TimeVariation', 'faketimes auto_faketimes')):
@@ -481,20 +499,6 @@ class TimeVariation(collections.namedtuple('_TimeVariation', 'faketimes auto_fak
     @classmethod
     def empty(cls):
         return cls(mdiffconf.strlist_set(";"), mdiffconf.strlist_set(";"))
-
-    def apply_dynamic_defaults(self, source_root):
-        new_faketimes = []
-        for a in self.auto_faketimes:
-            if a == "SOURCE_DATE_EPOCH":
-                # Get the latest modification date of all the files in the source root.
-                # This tries hard to avoid bad interactions with faketime and make(1) etc.
-                # However if you're building this too soon after changing one of the source
-                # files then the effect of this variation is not very great.
-                filemtimes = (os.lstat(os.path.join(root, f)).st_mtime for root, dirs, files in os.walk(source_root) for f in files)
-                new_faketimes.append("@%d" % int(max(filemtimes, default=0)))
-            else:
-                raise ValueError("unrecognized auto_faketime: %s" % a)
-        return self.empty()._replace(faketimes=self.faketimes + new_faketimes)
 
 
 class EnvironmentVariation(collections.namedtuple("_EnvironmentVariation", "variables")):
@@ -559,17 +563,11 @@ class VariationSpec(mdiffconf.ImmutableNamespace):
     def actions(self):
         return [(k, k in self.__dict__, v) for k, v in VARIATIONS.items()]
 
-    def apply_dynamic_defaults(self, source_root):
-        return self.__class__(**{
-            k: v.apply_dynamic_defaults(source_root) if hasattr(v, "apply_dynamic_defaults") else v
-            for k, v in self.__dict__.items()
-        })
 
-
-class Variations(collections.namedtuple('_Variations', 'spec verbosity min_cpus')):
+class Variations(collections.namedtuple('_Variations', 'spec verbosity min_cpus base_faketime')):
     @classmethod
-    def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0, min_cpus=1):
-        return [cls(spec, verbosity, min_cpus) for spec in [zero] + list(specs)]
+    def of(cls, *specs, zero=VariationSpec.empty(), verbosity=0, min_cpus=1, base_faketime="@0"):
+        return [cls(spec, verbosity, min_cpus, base_faketime) for spec in [zero] + list(specs)]
 
     @property
     def replace(self):
@@ -635,4 +633,4 @@ if __name__ == "__main__":
         d = d.extend([s])
         print(s)
         print(">>>", d)
-    print("result", d.apply_dynamic_defaults("."))
+    print("result", d)

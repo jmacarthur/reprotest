@@ -247,14 +247,13 @@ user_group.available
     a $user, with no $group variation.
 time.faketimes
     A semicolon-separated ordered set, specifying possible ``faketime(1)`` time
-    descriptors to use. Default is empty.
-time.auto_faketimes
-    A semicolon-separated ordered set, specifying a list of "magic" values
-    which will be resolved into additional values for time.faketimes. Default
-    is "SOURCE_DATE_EPOCH", possible values are:
+    descriptors to use. Default is empty, in which case we randomly choose a
+    time: either now (if the latest file-modtime in ``source_root`` is older
+    than about half-a-year) or more than half-a-year in the future.
 
-    SOURCE_DATE_EPOCH
-        Use the latest file modification time found in the source_root.
+    Note that the clock continues to run during the build. It is possible for
+    ``faketime(1)`` to freeze it, but we don't yet support that yet; it has a
+    higher chance of causing your build to fail or misbehave.
 
 The difference between --vary and --variations is that the former appends onto
 previous values but the latter resets them. Furthermore, the last value set for

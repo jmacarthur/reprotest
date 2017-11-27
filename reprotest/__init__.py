@@ -314,7 +314,6 @@ class TestArgs(collections.namedtuple('_Test',
                         raise ValueError("already built '%s'" % name)
                     names_seen.add(name)
 
-                    var = var.replace.spec.apply_dynamic_defaults(source_root)
                     bctx = BuildContext(testbed.scratch, result_dir, source_root, name, var)
 
                     build = bctx.make_build_commands(build_command, os.environ)
@@ -772,7 +771,12 @@ def run(argv, dry_run=None):
     if parsed_args.min_cpus is None:
         logger.warn("The control build runs on 1 CPU by default, give --min-cpus to increase this.")
     min_cpus = parsed_args.min_cpus or 1
-    build_variations = Variations.of(*specs, verbosity=verbosity, min_cpus=min_cpus)
+    build_variations = Variations.of(
+        *specs,
+        verbosity=verbosity,
+        min_cpus=min_cpus,
+        # TODO: make this configurable via command line
+        base_faketime='@%d' % build.auto_source_date_epoch(source_root))
 
     # Warn about missing programs
     if virtual_server_args[0] == "null" and not dry_run:
@@ -819,6 +823,6 @@ def main():
     r = run(sys.argv[1:])
     if not isinstance(r, int):
         import pprint
-        pprint.pprint(r, width=40, compact=True)
+        pprint.pprint(r, width=80, compact=True)
     else:
         return r
