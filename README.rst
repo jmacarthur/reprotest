@@ -229,9 +229,9 @@ environment.variables
     reprotest should try to vary. Default is "REPROTEST_CAPTURE_ENVIRONMENT".
     Supports regex-based syntax e.g.
 
-    - PID=\d{1,6}
-    - HOME=(/\w{3,12}){1,4}
-    - (GO|PYTHON|)PATH=(/\w{3,12}){1,4}(:(/\w{3,12}){1,4}){0,4}
+    - PID=\\d{1,6}
+    - HOME=(/\\w{3,12}){1,4}
+    - (GO|PYTHON|)PATH=(/\\w{3,12}){1,4}(:(/\\w{3,12}){1,4}){0,4}
 
     Special cases:
 
