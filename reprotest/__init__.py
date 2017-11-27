@@ -768,7 +768,7 @@ def run(argv, dry_run=None):
         for extra_build in parsed_args.extra_build:
             specs.append(spec.extend(extra_build))
         check_func = check
-    if parsed_args.min_cpus is None:
+    if parsed_args.min_cpus is None and not dry_run:
         logger.warn("The control build runs on 1 CPU by default, give --min-cpus to increase this.")
     min_cpus = parsed_args.min_cpus or 1
     build_variations = Variations.of(
