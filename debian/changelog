@@ -1,4 +1,4 @@
-reprotest (0.7.4) UNRELEASED; urgency=medium
+reprotest (0.7.4) unstable; urgency=medium
 
   * Hopefully fix the autopkgtest tests.
   * Add aslr, domain_host, and num_cpu variations.
@@ -8,7 +8,7 @@ reprotest (0.7.4) UNRELEASED; urgency=medium
     time.auto_faketimes variation-spec option.
   * Make --no-clean-on-error a bit more reliable.
 
- -- Ximin Luo <infinity0@debian.org>  Fri, 20 Oct 2017 12:33:21 +0200
+ -- Ximin Luo <infinity0@debian.org>  Mon, 27 Nov 2017 14:19:11 +0100
 
 reprotest (0.7.3) unstable; urgency=medium
 
