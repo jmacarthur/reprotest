@@ -450,9 +450,9 @@ def user_group(ctx, build, vary):
         'cd "{0}" && rm -f disorderfs mkdir fusermount'.format(binpath))
     _ = _.append_setup_exec_raw('export', 'PATH="%s:$PATH"' % binpath)
     if user != olduser:
-        _ = _.append_setup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
+        _ = _.append_setup_exec(*SUDO, 'chown', '-h', '-R', '--from=%s' % olduser, user, build.tree)
         # TODO: artifacts probably shouldn't be chown'd back
-        _ = _.prepend_cleanup_exec('sudo', 'chown', '-h', '-R', '--from=%s' % user, olduser, build.tree)
+        _ = _.prepend_cleanup_exec(*SUDO, 'chown', '-h', '-R', '--from=%s' % user, olduser, build.tree)
     return _
 
 
