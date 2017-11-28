@@ -1,3 +1,23 @@
+reprotest
+=========
+
+reprotest builds the same source code twice in different environments, and then
+checks the binaries produced by each build for differences. If any are found,
+then ``diffoscope(1)`` (or if unavailable then ``diff(1)``) is used to display
+them in detail for later analysis.
+
+See the ``COMMAND-LINE EXAMPLES`` section further below to get you
+started, as well as more detailed explanations of all the command-line
+options. The same information is also available in
+``/usr/share/doc/reprotest/README.rst`` or similar.
+
+.. raw:: manpage
+
+   .\" the below hack gets rid of the python "usage" message in favour of the
+   .\" the synopsis we manually defined in doc/$(PACKAGE).h2m.0
+   .SS positional arguments:
+   .\" end_of_description_header
+
 Command-line examples
 =====================
 
