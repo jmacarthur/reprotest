@@ -236,14 +236,18 @@ def run_or_tee(progargs, filename, store_dir, *args, **kwargs):
         return subprocess.run(progargs, *args, **kwargs)
 
 def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
+    name = os.path.basename(dist_1)
     if diffoscope_args is None: # don't run diffoscope
         diffprogram = ['diff', '-ru', dist_0, dist_1]
         logger.info("Running diff: %r", diffprogram)
+        output = '%s.diff' % name
     else:
-        diffprogram = ['diffoscope', dist_0, dist_1] + diffoscope_args
+        diffprogram = (['diffoscope', dist_0, dist_1] +
+            [a.format(name, dist_1) for a in diffoscope_args])
         logger.info("Running diffoscope: %r", diffprogram)
+        output = '%s.diffoscope.out' % name
 
-    retcode = run_or_tee(diffprogram, 'diffoscope.out', store_dir).returncode
+    retcode = run_or_tee(diffprogram, output, store_dir).returncode
     if retcode == 0:
         logger.info("No differences between %s, %s", dist_0, dist_1)
         if store_dir:
@@ -592,7 +596,9 @@ def cli_parser():
     group2 = parser.add_argument_group('diff options')
     group2.add_argument('--diffoscope-arg', action='append', metavar='ARG',
         help='Give extra arguments to diffoscope when running it. Default: '
-        '%(default)s', default=['--exclude-directory-metadata'])
+        '%(default)s. Arguments are {}-formatted with: {0} the name of each '
+        'experiment run, and {1} the path of the experiment output.',
+        default=['--exclude-directory-metadata'])
     group2.add_argument('--no-diffoscope', action='store_true', default=False,
         help='Don\'t run diffoscope; instead run diff(1). Useful if you '
         'don\'t want to install diffoscope and/or just want a quick answer '
