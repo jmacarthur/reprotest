@@ -242,8 +242,8 @@ def run_diff(dist_0, dist_1, diffoscope_args, store_dir):
         logger.info("Running diff: %r", diffprogram)
         output = '%s.diff' % name
     else:
-        diffprogram = (['diffoscope', dist_0, dist_1] +
-            [a.format(name, dist_1) for a in diffoscope_args])
+        diffprogram = ([a.format(name, dist_1) for a in diffoscope_args]
+            + [dist_0, dist_1])
         logger.info("Running diffoscope: %r", diffprogram)
         output = '%s.diffoscope.out' % name
 
@@ -599,6 +599,8 @@ def cli_parser():
         '%(default)s. Arguments are {}-formatted with: {0} the name of each '
         'experiment run, and {1} the path of the experiment output.',
         default=['--exclude-directory-metadata'])
+    group2.add_argument('--diffoscope', default='diffoscope', metavar='PATH',
+        help='Path to diffoscope(1). Default: %(default)s')
     group2.add_argument('--no-diffoscope', action='store_true', default=False,
         help='Don\'t run diffoscope; instead run diff(1). Useful if you '
         'don\'t want to install diffoscope and/or just want a quick answer '
@@ -807,8 +809,11 @@ def run(argv, dry_run=None):
     host_distro = parsed_args.host_distro
     store_dir = parsed_args.store_dir
     no_clean_on_error = parsed_args.no_clean_on_error
+    diffoscope = parsed_args.diffoscope
     if parsed_args.no_diffoscope:
         diffoscope_args = None
+    else:
+        diffoscope_args = [diffoscope] + diffoscope_args
 
     if not artifact_pattern:
         print("No <artifact> to test for differences provided. See --help for options.")
