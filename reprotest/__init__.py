@@ -267,7 +267,7 @@ class TestArgs(collections.namedtuple('_Test',
     'build_command source_root artifact_pattern result_dir source_pattern no_clean_on_error diffoscope_args')):
     @classmethod
     def of(cls, build_command, source_root, artifact_pattern, result_dir=None,
-                source_pattern=None, no_clean_on_error=False, diffoscope_args=[]):
+                source_pattern=None, no_clean_on_error=False, diffoscope_args=['diffoscope']):
         artifact_pattern = shell_syn.sanitize_globs(artifact_pattern)
         logger.debug("artifact_pattern sanitized to: %s", artifact_pattern)
 
