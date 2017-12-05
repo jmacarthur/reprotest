@@ -284,9 +284,9 @@ def home(ctx, build, vary):
 def kernel(ctx, build, vary):
     _ = build
     if not vary:
-        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(arch)')
+        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(uname -m)')
     else:
-        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(setarch --list | grep -vF "$(arch)" | shuf | head -n1)')
+        _ = _.append_setup_exec_raw('SETARCH_ARCH=$(setarch --list | grep -vF "$(uname -m)" | shuf | head -n1)')
         _ = _.append_setup_exec_raw('KERNEL_VERSION=$(uname -r)')
         _ = _.append_setup_exec_raw('if [ ${KERNEL_VERSION#2.6} = $KERNEL_VERSION ]; then SETARCH_OPTS=--uname-2.6; fi')
     return _.prepend_to_build_command_raw('setarch', '$SETARCH_ARCH', '$SETARCH_OPTS')
