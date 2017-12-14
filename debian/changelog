@@ -1,4 +1,4 @@
-reprotest (0.7.5) UNRELEASED; urgency=medium
+reprotest (0.7.5) unstable; urgency=medium
 
   [ Santiago Torres ]
   * Use `uname -m` instead of `arch`.
@@ -8,7 +8,7 @@ reprotest (0.7.5) UNRELEASED; urgency=medium
   * Allow --diffoscope-args to contain variables to be expanded.
   * Fix autopkgtest.
 
- -- Ximin Luo <infinity0@debian.org>  Thu, 14 Dec 2017 17:37:07 +0100
+ -- Ximin Luo <infinity0@debian.org>  Thu, 14 Dec 2017 17:44:39 +0100
 
 reprotest (0.7.4) unstable; urgency=medium
 
