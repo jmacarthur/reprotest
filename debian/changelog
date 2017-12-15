@@ -3,6 +3,7 @@ reprotest (0.7.6) UNRELEASED; urgency=medium
   * Ensure num_cpus variation uses a different number of cpus in different
     builds, and print a warning if only 1 cpu is available. (Closes: #884386)
   * Don't test the num_cpus variation if only 1 cpu is available.
+  * Update to latest Standards-Version; no changes required.
 
  -- Ximin Luo <infinity0@debian.org>  Fri, 15 Dec 2017 16:00:44 +0100
 

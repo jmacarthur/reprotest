@@ -3,7 +3,7 @@ Maintainer: Reproducible builds folks <reproducible-builds@lists.alioth.debian.o
 Uploaders: Ceridwen <ceridwenv@gmail.com>, Ximin Luo <infinity0@debian.org>
 Section: devel
 Priority: optional
-Standards-Version: 4.1.1
+Standards-Version: 4.1.2
 Build-Depends: debhelper (>= 10),
  dpkg-dev (>= 1.17.14),
  dh-python,
