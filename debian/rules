@@ -6,12 +6,16 @@ export PYBUILD_NAME = reprotest
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
+, := ,
 # It's hard to make sure disorderfs works on buildds, so drop it.
 # The build user needs fuse access and this is not easily arranged.
 #
 # To be user-friendly the user_group variation defaults to ON but is a no-op.
 # This causes tests to fail since they expect something to be captured. So ignore it here
-export REPROTEST_TEST_DONTVARY = fileordering,user_group,domain_host
+#
+# Also disable the num_cpus variation if $(nproc) = 1 as there is no variation
+# in that case.
+export REPROTEST_TEST_DONTVARY = fileordering,user_group,domain_host$(if $(shell nproc | grep --color=no -Fx 1),$(,)num_cpus,)
 
 override_dh_auto_configure:
 	test $$(python3 setup.py --version) = $$(dpkg-parsechangelog -SVersion)
@@ -31,6 +35,14 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_PROFILES)))
 	tox -r --sitepackages -- -s
 endif
 endif
+
+# This is mean to be run by autopkgtest, and runs against the *installed*
+# version of reprotest. To run it against the development version, give
+# PYTHONPATH=$PWD. (Or just use override_dh_auto_test, above.)
+autopkgtest-pytest:
+# print the value, for debugging
+	REPROTEST_TEST_DONTVARY="$(REPROTEST_TEST_DONTVARY)"
+	pytest-3 $(if $(PYTEST_MARKEXPR),-m "$(PYTEST_MARKEXPR)",) $(PYTEST_ARGS)
 
 override_dh_auto_clean:
 	dh_auto_clean
