@@ -1,8 +1,8 @@
-reprotest (0.7.7) UNRELEASED; urgency=medium
+reprotest (0.7.7) unstable; urgency=medium
 
   * Update debian/copyright and use HTTPS in debian/watch.
 
- -- Ximin Luo <infinity0@debian.org>  Fri, 15 Dec 2017 18:24:03 +0100
+ -- Ximin Luo <infinity0@debian.org>  Fri, 15 Dec 2017 18:28:41 +0100
 
 reprotest (0.7.6) unstable; urgency=medium
 
