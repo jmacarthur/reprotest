@@ -6,7 +6,7 @@
 from setuptools import setup, find_packages
 
 setup(name='reprotest',
-      version='0.7.5',
+      version='0.7.6',
       description='Build packages and check them for reproducibility.',
       long_description=open('README.rst', encoding='utf-8').read(),
       author='Ximin Luo, Ceridwen',
