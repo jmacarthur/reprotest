@@ -39,6 +39,7 @@ import urllib.parse
 
 from reprotest.lib.system_interface.debian import DebianInterface
 from reprotest.lib.system_interface.arch import ArchInterface
+from reprotest.lib.system_interface.no_package_manager import NoPackageInterface
 from reprotest.lib import adtlog
 from reprotest.lib import VirtSubproc
 
@@ -100,8 +101,8 @@ class Testbed:
             # The host_distro provided is not available.
             # Let's play it cool
             adtlog.warning("Could not load target distro keychain. "
-                "Falling back to Debian")
-            self.system_interface = DebianInterface()
+                "Falling back to no-package interface.")
+            self.system_interface = NoPackageInterface()
 
         adtlog.debug('testbed init')
 
