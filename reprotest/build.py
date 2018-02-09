@@ -289,7 +289,7 @@ def kernel(ctx, build, vary):
         _ = _.append_setup_exec_raw('SETARCH_ARCH=$(setarch --list | grep -vF "$(uname -m)" | shuf | head -n1)')
         _ = _.append_setup_exec_raw('KERNEL_VERSION=$(uname -r)')
         _ = _.append_setup_exec_raw('if [ ${KERNEL_VERSION#2.6} = $KERNEL_VERSION ]; then SETARCH_OPTS=--uname-2.6; fi')
-    return _.prepend_to_build_command_raw('setarch', '$SETARCH_ARCH', '$SETARCH_OPTS')
+    return _
 
 def aslr(ctx, build, vary):
     if vary:
