@@ -80,8 +80,14 @@ def start_testbed(args, temp_dir, no_clean_on_error=False, host_distro=None):
     if no_clean_on_error:
         os.environ["REPROTEST_NO_CLEAN_ON_ERROR"] = "1"
     # TODO: make the user configurable, like autopkgtest
+    username = getpass.getuser()
+
+    if username == "tomjon":
+        # Hello BuildStream
+        username = str(os.getuid())
+
     testbed = Testbed([server_path] + args[1:], temp_dir,
-                      getpass.getuser(), host_distro=host_distro)
+                      username, host_distro=host_distro)
     testbed.start()
     testbed.open()
     should_clean = True
@@ -207,7 +213,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
         logger.debug("#### END REPROTEST BUILD SCRIPT ################################################")
 
         if 'root-on-testbed' in testbed.caps:
-            testbed.check_exec2(['chown', testbed.user + ':', self.testbed_root])
+            testbed.check_exec2(['chown', testbed.user, self.testbed_root])
             fix_path = 'export PATH=%s; ' % shlex.quote(build.env['PATH']) if 'PATH' in build.env else ''
             build_argv = ['su', '-p', '-s', '/bin/sh', testbed.user,
                 '-c', 'set -e; ' + fix_path + build_script]
