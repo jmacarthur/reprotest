@@ -312,7 +312,7 @@ def num_cpus(ctx, build, vary):
 
     # select CPU_NUM random cpus from the range 0..$((CPU_MAX-1))
     cpu_list = "$(echo $(shuf -i0-$((CPU_MAX - 1)) -n$CPU_NUM) | tr ' ' ,)"
-    return _.prepend_to_build_command_raw('taskset', '-a', '-c', cpu_list)
+    return _
 
 # TODO: if this locale doesn't exist on the system, Python's
 # locales.getlocale() will return (None, None) rather than this
