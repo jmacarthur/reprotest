@@ -217,7 +217,7 @@ class BuildContext(collections.namedtuple('_BuildContext',
             fix_path = 'export PATH=%s; ' % shlex.quote(build.env['PATH']) if 'PATH' in build.env else ''
             already_root = testbed.user == '0'
             if already_root:
-                build_argv = ['set -e; ' + fix_path + build_script]
+                build_argv = ['/bin/sh', '-c', 'set -e; ' + fix_path + build_script]
             else:
                 build_argv = ['su', '-p', '-s', '/bin/sh', testbed.user,
                               '-c', 'set -e; ' + fix_path + build_script]
