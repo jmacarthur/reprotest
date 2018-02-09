@@ -215,9 +215,13 @@ class BuildContext(collections.namedtuple('_BuildContext',
         if 'root-on-testbed' in testbed.caps:
             testbed.check_exec2(['chown', testbed.user, self.testbed_root])
             fix_path = 'export PATH=%s; ' % shlex.quote(build.env['PATH']) if 'PATH' in build.env else ''
-            build_argv = ['su', '-p', '-s', '/bin/sh', testbed.user,
-                '-c', 'set -e; ' + fix_path + build_script]
-            logger.info("su to user '%s' to run the build", testbed.user)
+            already_root = testbed.user == '0'
+            if already_root:
+                build_argv = ['set -e; ' + fix_path + build_script]
+            else:
+                build_argv = ['su', '-p', '-s', '/bin/sh', testbed.user,
+                              '-c', 'set -e; ' + fix_path + build_script]
+                logger.info("su to user '%s' to run the build", testbed.user)
         else:
             build_argv = ['sh', '-ec', build_script]
 
